@@ -1,0 +1,9 @@
+.venv/
+data/
+tests/
+extension/
+__pycache__/
+*.pyc
+*.apkg
+.env
+.git/

@@ -1,0 +1,47 @@
+# Ports bind to 127.0.0.1 only. Publishing to the internet is the host's
+# cloudflared instance (spec §8.1): point one hostname at localhost:$APP_PORT
+# for the API and another at localhost:$SYNC_SERVER_PORT for Anki sync.
+
+services:
+  app:
+    build: .
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      UVICORN_PORT: ${APP_PORT:-8000}
+      # Derived so it can never drift from the sync container's actual port.
+      # Set here rather than in .env because `environment` wins over `env_file`.
+      SYNC_ENDPOINT: http://anki-sync:${SYNC_SERVER_PORT:-8080}/
+    ports:
+      - "127.0.0.1:${APP_PORT:-8000}:${APP_PORT:-8000}"
+    volumes:
+      - ./data/anki:/data/anki       # collection + media
+      - ./data/app:/data/app         # inbox.db
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - import os,urllib.request;urllib.request.urlopen('http://127.0.0.1:'+os.environ.get('UVICORN_PORT','8000')+'/healthz')
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    # Never scale this past one replica — single writer (D2).
+    deploy:
+      replicas: 1
+
+  anki-sync:
+    build: .                         # same image: identical anki version (D7)
+    restart: unless-stopped
+    command: python -m anki.syncserver
+    environment:
+      # Defaults to loopback, which would be unreachable from other containers.
+      SYNC_HOST: 0.0.0.0
+      SYNC_PORT: ${SYNC_SERVER_PORT:-8080}
+      SYNC_BASE: /data/sync
+      SYNC_USER1: ${SYNC_USERNAME}:${SYNC_PASSWORD}
+    ports:
+      - "127.0.0.1:${SYNC_SERVER_PORT:-8080}:${SYNC_SERVER_PORT:-8080}"
+    volumes:
+      - ./data/sync:/data/sync

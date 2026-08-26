@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <title>Vocabulary Builder 设置</title>
+    <style>
+      body {
+        font: 14px/1.6 -apple-system, "Segoe UI", "Noto Sans CJK SC", sans-serif;
+        max-width: 560px;
+        margin: 32px auto;
+        padding: 0 20px;
+        color: #222;
+      }
+      h1 { font-size: 18px; margin-bottom: 4px; }
+      .hint { color: #777; font-size: 12px; margin: 2px 0 16px; }
+      label { display: block; margin-top: 16px; font-weight: 600; }
+      input[type="text"], input[type="password"], textarea, select {
+        width: 100%; box-sizing: border-box; margin-top: 4px; padding: 7px 9px;
+        border: 1px solid #ccc; border-radius: 5px; font: inherit;
+      }
+      textarea { height: 76px; resize: vertical; }
+      .row { display: flex; align-items: center; gap: 8px; margin-top: 16px; }
+      .row label { margin: 0; font-weight: 400; }
+      .actions { margin-top: 24px; display: flex; gap: 10px; align-items: center; }
+      button {
+        padding: 8px 16px; border-radius: 5px; border: 1px solid #ccc;
+        background: #f7f7f7; font: inherit; cursor: pointer;
+      }
+      button.primary { background: #1a73e8; border-color: #1a73e8; color: #fff; }
+      #status { font-size: 13px; }
+      .ok { color: #1b5e20; }
+      .error { color: #b71c1c; }
+    </style>
+  </head>
+  <body>
+    <h1>Vocabulary Builder</h1>
+    <p class="hint">双击网页上的单词即可收集。设置保存在本机，不会同步。</p>
+
+    <label for="serverUrl">服务器地址</label>
+    <input id="serverUrl" type="text" placeholder="https://api.example.com" />
+
+    <label for="token">Token</label>
+    <input id="token" type="password" placeholder="与服务端 API_TOKENS 中的一项一致" />
+
+    <label for="clientId">设备标识</label>
+    <input id="clientId" type="text" placeholder="chrome-macbook" />
+
+    <label for="lang">词典语言</label>
+    <select id="lang">
+      <option value="en">英语</option>
+      <option value="zh">中文</option>
+    </select>
+
+    <label for="blacklist">站点黑名单</label>
+    <textarea id="blacklist" placeholder="每行一个域名片段，例如：&#10;mail.google.com&#10;localhost"></textarea>
+
+    <div class="row">
+      <input id="enabled" type="checkbox" />
+      <label for="enabled">启用双击取词</label>
+    </div>
+
+    <div class="actions">
+      <button id="save" class="primary">保存</button>
+      <button id="test">测试连接</button>
+      <span id="status"></span>
+    </div>
+
+    <script src="options.js"></script>
+  </body>
+</html>

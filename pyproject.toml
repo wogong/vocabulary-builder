@@ -1,0 +1,24 @@
+[project]
+name = "vocab-builder"
+version = "0.1.0"
+description = "Contextual vocabulary capture: browser and Telegram into Anki"
+requires-python = ">=3.13"
+
+# Pinned exactly — the anki API moves between versions (spec R1).
+# Run tests/smoke_anki.py before bumping anything here.
+# P1+ dependencies (lemminflect, python-telegram-bot, apscheduler, edge-tts)
+# are added as those phases land.
+dependencies = [
+    "anki==26.8.1",
+    "fastapi==0.141.1",
+    "uvicorn[standard]==0.52.4",
+]
+
+[dependency-groups]
+dev = [
+    "httpx==0.28.1", # fastapi.testclient
+]
+
+[tool.uv]
+# An application, not a library: nothing to build or install, just deps.
+package = false
