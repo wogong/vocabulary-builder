@@ -1,4 +1,4 @@
-# 语境化生词收集系统 — P0
+# 语境化生词收集系统 — P0 + P1
 
 按 [`vocab-system-spec.md`](vocab-system-spec.md) 实现的 P0 最小闭环：
 
@@ -13,7 +13,9 @@ Chrome 插件 ──HTTPS──▶ app (FastAPI)
                          anki-sync (自建)  ◀──── AnkiDroid / Desktop
 ```
 
-## P0 包含什么
+## 已实现
+
+**P0 — 最小闭环**
 
 | 能力 | 位置 |
 |---|---|
@@ -21,13 +23,23 @@ Chrome 插件 ──HTTPS──▶ app (FastAPI)
 | 单写入者 AnkiWriter、文件锁、同词合并 | `app/anki_writer.py` |
 | debounce 同步 + 强制间隔，绝不自动 full sync | `app/anki_writer.py` |
 | `/healthz`、`/v1/stats`、`/v1/sync` | `app/main.py` |
-| 双击取词 + `Intl.Segmenter` 切句 + 提交 + 设置页 | `extension/` |
+| 双击取词 + `Intl.Segmenter` 切句 + 设置页 | `extension/` |
 | 自建 sync server + 宿主机 cloudflared | `docker-compose.yml` |
-| L1/L2/L3 三层备份 | `scripts/backup.py` |
+| L1/L2/L3 三层备份、inbox 重放 | `scripts/backup.py`, `scripts/reproject.py` |
 
-**尚未实现（按 spec 分期）**：查词释义与词形还原、插件查词卡片与离线队列（P1）；
-Telegram bot、TTS（P2）；LLM 语境化释义、AnkiConnect 兼容层（P3）。
-P0 的去重键是「小写后的原词」，`lemma_of()` 在 P1 换成 lemminflect。
+**P1 — 质量提升**
+
+| 能力 | 位置 |
+|---|---|
+| 词形还原（ECDICT 变形表优先，lemminflect 兜底） | `app/lemma.py` |
+| ECDICT 英文查词 + CC-CEDICT 中文查词 | `app/dictionary.py` |
+| `GET /v1/lookup`、`POST /v1/known` | `app/main.py` |
+| 采集时写入释义、音标、词频到卡片 | `app/main.py`, `app/anki_writer.py` |
+| 插件查词卡片：释义预览、可编辑句子、已认识 | `extension/content.js` |
+| 离线队列：指数退避、幂等重试、badge 计数 | `extension/background.js` |
+| 词频标记（COCA 排名 + `MIN_FREQ_RANK`） | `app/main.py` |
+
+**尚未实现**：Telegram bot、TTS（P2）；LLM 语境化释义、AnkiConnect 兼容层（P3）。
 
 ## 部署
 
@@ -112,12 +124,24 @@ compose 只在 `127.0.0.1` 暴露端口，由你已有的 cloudflared 配两条 
 之后服务端只做增量同步，遇到需要 full sync 只告警不执行（R2）—— 这时候要人工介入，
 `/healthz` 里的 `full_sync_required` 会是 `true`。
 
-### 5. 装插件
+### 5. 词典（可选，P1）
+
+没有词典也能用 —— 只是卡片上不会有释义、音标和词频，词形还原退到 lemminflect。
+
+```bash
+uv run python scripts/fetch_dicts.py --dest data/dict
+```
+
+ECDICT 解压后约 **800 MB**，`data/` 在 Dropbox 之类的同步盘里的话，
+请把 `--dest` 指到同步盘外，并把 `.env` 里的 `ECDICT_PATH` 改成对应路径。
+CC-CEDICT 只有 4 MB，无所谓。
+
+### 6. 装插件
 
 `chrome://extensions` → 打开开发者模式 → 「加载已解压的扩展程序」→ 选 `extension/` 目录。
 在扩展的「选项」里填服务器地址（`https://api.example.com`）和 token，点「测试连接」。
 
-### 6. 备份（宿主机 crontab）
+### 7. 备份（宿主机 crontab）
 
 ```cron
 17 *    * * *  cd /path/to/neo && docker compose exec -T app python scripts/backup.py l1
@@ -139,10 +163,12 @@ uv sync                             # 建 .venv 并按 uv.lock 装依赖
 
 uv run python tests/smoke_anki.py       # R1：钉住 anki API（含真实同步往返），升级 anki 前必跑
 uv run python tests/test_p0.py          # 接口 / 去重合并 / 挖空 / 转义 / 文件锁 / schema 漂移
+uv run python tests/test_p1.py          # 词典 / 词形还原 / lookup / known / 释义写入
 uv run python tests/test_bootstrap.py   # 两条首次初始化路径 + AnkiWeb 回退守卫
 uv run python tests/test_recovery.py    # collection 被换掉后的重放，以及同步重试退避
 uv run python tests/test_acceptance.py  # 全链路：bootstrap → 采集 → 同步 → 第二台设备看到卡
 node tests/test_sentence.js             # 切句与 offset 跟踪
+node tests/test_queue.js                # 插件离线队列：退避、幂等、上限
 ```
 
 本地跑服务（不用 docker）：
@@ -201,3 +227,7 @@ docker compose up -d app
 - **`Intl.Segmenter` 不认缩写**。ICU 默认无缩写抑制表，"Mr. Smith" 会被切成两句，
   `extension/sentence.js` 里对头衔类缩写做了合并。
 - **anki 需要 glibc ≥ 2.35**（manylinux_2_35 wheel），所以基础镜像是 bookworm，Alpine 不行。
+- **词形还原以 ECDICT 的变形表为准**，lemminflect 只在词典查不到时兜底，且只有当原词
+  不是自身的原型时才还原 —— 否则 `better` 会变成 `good`、`whose` 会变成 `who`。
+- **卡片上手改过的释义不会被覆盖**。再次采集同一个词只补空字段、追加语境。
+- **重试幂等靠 `idem_key`**：离线队列重发时若服务端已经收过，返回 409，队列按成功处理。

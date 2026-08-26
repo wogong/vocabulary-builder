@@ -56,6 +56,23 @@ async function test() {
   }
 }
 
+async function refreshQueue() {
+  const res = await chrome.runtime.sendMessage({ type: 'vocab:queue' });
+  const depth = res?.data?.depth ?? 0;
+  $('queue').textContent = depth ? `${depth} 条待发送` : '空';
+}
+
+async function flush() {
+  $('flush').disabled = true;
+  $('queue').textContent = '重试中…';
+  const res = await chrome.runtime.sendMessage({ type: 'vocab:flush' });
+  const depth = res?.data?.depth ?? 0;
+  $('queue').textContent = depth ? `${depth} 条仍待发送` : '已全部发出';
+  $('flush').disabled = false;
+}
+
 $('save').addEventListener('click', save);
 $('test').addEventListener('click', test);
+$('flush').addEventListener('click', flush);
 load();
+refreshQueue();

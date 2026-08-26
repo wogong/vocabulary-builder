@@ -36,6 +36,9 @@ class Config:
     tokens: dict[str, str]
     max_contexts_per_note: int
     max_sentence_chars: int
+    ecdict_path: str
+    cedict_path: str
+    min_freq_rank: int
 
     def __post_init__(self):
         # An empty endpoint means AnkiWeb to the anki library. D7 chose a
@@ -66,6 +69,9 @@ class Config:
             tokens=_tokens(os.environ.get("API_TOKENS", "")),
             max_contexts_per_note=_int("MAX_CONTEXTS_PER_NOTE", 5),
             max_sentence_chars=_int("MAX_SENTENCE_CHARS", 400),
+            ecdict_path=os.environ.get("ECDICT_PATH", ""),
+            cedict_path=os.environ.get("CEDICT_PATH", ""),
+            min_freq_rank=_int("MIN_FREQ_RANK", 3000),
         )
 
     @property

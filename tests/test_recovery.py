@@ -133,9 +133,13 @@ def main():
             col.note_count() == 4,
             col.note_count(),
         )
+        # P1 files notes under the lemma, so that is what to look for.
+        from app.lemma import lemmatize
+
         for word, _ in words:
-            found = col.find_notes(f'note:VocabContext "Word:{word}"')
-            check(f"  {word} restored", len(found) == 1, list(found))
+            key = lemmatize(word)
+            found = col.find_notes(f'note:VocabContext "Word:{key}"')
+            check(f"  {word} restored (as {key!r})", len(found) == 1, list(found))
         check("pre-existing note untouched", len(col.find_notes('"Word:preexisting"')) == 1)
         col.close()
 

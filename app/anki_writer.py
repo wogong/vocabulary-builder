@@ -5,6 +5,7 @@ Nothing else in the process may touch the collection.
 """
 
 import fcntl
+import html
 import json
 import logging
 import queue
@@ -215,6 +216,11 @@ class AnkiWriter(threading.Thread):
             note["Meta"] = render.merge_meta(note["Meta"], item["id"])
             if source:
                 note["Source"] = source
+            # Fill annotations only where the note has none: a definition
+            # edited by hand in Anki must survive the next capture.
+            for field, value in _annotations(item).items():
+                if value and not note[field].strip():
+                    note[field] = value
             self.col.update_note(note)
             return note.id, "merged", merge_target
 
@@ -224,6 +230,9 @@ class AnkiWriter(threading.Thread):
         note["ContextsMasked"] = masked
         note["Source"] = source
         note["Meta"] = render.merge_meta("", item["id"])
+        for field, value in _annotations(item).items():
+            if value:
+                note[field] = value
         self.col.add_note(note, self._deck_id)
         return note.id, "new", None
 
@@ -278,6 +287,15 @@ class AnkiWriter(threading.Thread):
         self.status["last_sync_error"] = None
         self.status["last_sync_at"] = utcnow()
         log.info("sync ok (required=%s)", out.required)
+
+
+def _annotations(item) -> dict[str, str]:
+    """Dictionary-derived fields (P1). Empty when no dictionary was available."""
+    definition = (item["definition"] or "").strip()
+    return {
+        "Definition": html.escape(definition).replace("\n", "<br>"),
+        "Phonetic": (item["phonetic"] or "").strip(),
+    }
 
 
 def _first_item_id(meta: str) -> int | None:

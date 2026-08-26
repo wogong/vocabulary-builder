@@ -24,3 +24,24 @@ class ItemAccepted(BaseModel):
     dedup: str
     lemma: str
     existing_contexts: int
+
+
+class LookupOut(BaseModel):
+    word: str
+    lemma: str
+    phonetic: str | None = None
+    definitions: list[str] = []
+    context_definition: str | None = None
+    freq_rank: int | None = None
+    common: bool = False
+    already_known: bool = False
+    in_deck: bool = False
+    existing_contexts: int = 0
+    audio_url: str | None = None
+    dictionary: str | None = None
+
+
+class KnownIn(BaseModel):
+    word: str = Field(min_length=1, max_length=100)
+    lang: str = "en"
+    known: bool = True

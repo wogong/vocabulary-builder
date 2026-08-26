@@ -148,3 +148,34 @@ class Inbox:
                 f"SELECT COUNT(DISTINCT lemma) FROM items WHERE status IN {LIVE}"
             ).fetchone()[0]
             return {"by_status": counts, "today": today, "distinct_words": distinct}
+
+    # -- known words (P1) ----------------------------------------------
+
+    def mark_known(self, lemma: str) -> None:
+        with self._conn() as con:
+            con.execute(
+                "INSERT OR REPLACE INTO known_words (lemma, marked_at) VALUES (?, ?)",
+                (lemma, utcnow()),
+            )
+
+    def unmark_known(self, lemma: str) -> None:
+        with self._conn() as con:
+            con.execute("DELETE FROM known_words WHERE lemma = ?", (lemma,))
+
+    def is_known(self, lemma: str) -> bool:
+        with self._conn() as con:
+            return (
+                con.execute(
+                    "SELECT 1 FROM known_words WHERE lemma = ?", (lemma,)
+                ).fetchone()
+                is not None
+            )
+
+    def context_count(self, lemma: str, lang: str) -> int:
+        """How many contexts this word already has in the deck (D4)."""
+        with self._conn() as con:
+            return con.execute(
+                f"SELECT COUNT(*) FROM items "
+                f"WHERE lemma=? AND lang=? AND status IN {LIVE}",
+                (lemma, lang),
+            ).fetchone()[0]

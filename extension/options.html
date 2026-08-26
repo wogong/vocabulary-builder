@@ -12,6 +12,7 @@
         color: #222;
       }
       h1 { font-size: 18px; margin-bottom: 4px; }
+      h2 { font-size: 15px; margin: 28px 0 4px; }
       .hint { color: #777; font-size: 12px; margin: 2px 0 16px; }
       label { display: block; margin-top: 16px; font-weight: 600; }
       input[type="text"], input[type="password"], textarea, select {
@@ -63,6 +64,16 @@
       <button id="save" class="primary">保存</button>
       <button id="test">测试连接</button>
       <span id="status"></span>
+    </div>
+
+    <h2>待发送队列</h2>
+    <p class="hint">
+      网络或服务器不可用时，采集会暂存在本机并自动重试（1s / 5s / 30s / 5min / 30min），
+      上限 500 条。每条都带幂等键，重试不会产生重复卡片。
+    </p>
+    <div class="actions">
+      <span id="queue">—</span>
+      <button id="flush">立即重试</button>
     </div>
 
     <script src="options.js"></script>
