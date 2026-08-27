@@ -179,3 +179,102 @@ class Inbox:
                 f"WHERE lemma=? AND lang=? AND status IN {LIVE}",
                 (lemma, lang),
             ).fetchone()[0]
+
+    # -- settings (P2) ---------------------------------------------------
+
+    def setting(self, key: str, default: str | None = None) -> str | None:
+        with self._conn() as con:
+            row = con.execute("SELECT value FROM settings WHERE key=?", (key,)).fetchone()
+            return row["value"] if row else default
+
+    def set_setting(self, key: str, value: str) -> None:
+        with self._conn() as con:
+            con.execute(
+                "INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)", (key, value)
+            )
+
+    # -- bot reviews and quiz (P2, §7.6) ---------------------------------
+
+    def add_review(self, item_id: int, chat_id: int, rating: int) -> None:
+        with self._conn() as con:
+            con.execute(
+                "INSERT INTO bot_reviews (item_id, chat_id, rating, reviewed_at) "
+                "VALUES (?,?,?,?)",
+                (item_id, chat_id, rating, utcnow()),
+            )
+
+    def quiz_items(self, count: int) -> list[dict]:
+        """Pick words to quiz on (§7.6).
+
+        60% recent, 30% previously rated poorly, 10% anything — mixed so the
+        session is not only the words you just added.
+        """
+        recent_n = max(1, round(count * 0.6))
+        weak_n = max(0, round(count * 0.3))
+        picked: dict[int, dict] = {}
+
+        def take(sql, params, limit):
+            if limit <= 0:
+                return
+            with self._conn() as con:
+                for row in con.execute(sql, (*params, limit)):
+                    if row["id"] not in picked and len(picked) < count:
+                        picked[row["id"]] = dict(row)
+
+        base = (
+            "SELECT i.* FROM items i WHERE i.status='committed' "
+            "AND i.sentence_masked IS NOT NULL AND i.sentence_masked != '' "
+        )
+        take(base + "AND i.created_at >= datetime('now','-7 days') "
+                    "ORDER BY RANDOM() LIMIT ?", (), recent_n)
+        take(base + "AND EXISTS (SELECT 1 FROM bot_reviews r WHERE r.item_id=i.id "
+                    "AND r.rating <= 2 AND r.reviewed_at < datetime('now','-2 days')) "
+                    "ORDER BY RANDOM() LIMIT ?", (), weak_n)
+        take(base + "ORDER BY RANDOM() LIMIT ?", (), count - len(picked))
+        return list(picked.values())
+
+    # -- listings (P2) ---------------------------------------------------
+
+    def words_since(self, expr: str = "-1 days") -> list[dict]:
+        with self._conn() as con:
+            return [
+                dict(r)
+                for r in con.execute(
+                    "SELECT id, lemma, definition, created_at FROM items "
+                    "WHERE status='committed' AND created_at >= datetime('now', ?) "
+                    "ORDER BY id",
+                    (expr,),
+                )
+            ]
+
+    def today_count(self) -> int:
+        with self._conn() as con:
+            return con.execute(
+                "SELECT COUNT(*) FROM items WHERE status='committed' "
+                "AND created_at >= date('now')"
+            ).fetchone()[0]
+
+    def contexts_for(self, lemma: str) -> list[dict]:
+        with self._conn() as con:
+            return [
+                dict(r)
+                for r in con.execute(
+                    f"SELECT id, sentence, url, page_title, created_at FROM items "
+                    f"WHERE lemma=? AND status IN {LIVE} ORDER BY id",
+                    (lemma,),
+                )
+            ]
+
+    def last_committed(self) -> dict | None:
+        with self._conn() as con:
+            row = con.execute(
+                "SELECT * FROM items WHERE status='committed' ORDER BY committed_at DESC, "
+                "id DESC LIMIT 1"
+            ).fetchone()
+            return dict(row) if row else None
+
+    def mark_retracted(self, item_id: int) -> None:
+        with self._conn() as con:
+            con.execute(
+                "UPDATE items SET status='skipped', anki_note_id=NULL WHERE id=?", (item_id,)
+            )

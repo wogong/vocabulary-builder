@@ -39,6 +39,18 @@ CREATE INDEX IF NOT EXISTS idx_items_status  ON items(status);
 CREATE INDEX IF NOT EXISTS idx_items_lemma   ON items(lemma, lang);
 CREATE INDEX IF NOT EXISTS idx_items_created ON items(created_at);
 
+-- Bot quiz results. Deliberately NOT written back to Anki's scheduler (D6):
+-- two writers on one card's scheduling state is how review history gets lost.
+CREATE TABLE IF NOT EXISTS bot_reviews (
+    id          INTEGER PRIMARY KEY,
+    item_id     INTEGER NOT NULL REFERENCES items(id),
+    chat_id     INTEGER NOT NULL,
+    rating      INTEGER,                  -- 1..4
+    reviewed_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_reviews_item ON bot_reviews(item_id, reviewed_at);
+
 CREATE TABLE IF NOT EXISTS settings (
     key   TEXT PRIMARY KEY,
     value TEXT NOT NULL

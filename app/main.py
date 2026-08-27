@@ -8,16 +8,22 @@ import logging
 import os
 from contextlib import asynccontextmanager
 
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from apscheduler.triggers.cron import CronTrigger
 from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request
 from fastapi.responses import JSONResponse
 
-from . import render
 from .anki_writer import AnkiWriter
+from .bot import Bot
+from .capture import annotate, capture, resolve_lang
 from .config import Config
 from .db import Inbox
-from .dictionary import Dictionaries, is_cjk
+from .dictionary import Dictionaries
 from .lemma import lemmatize
-from .models import ItemAccepted, ItemIn, KnownIn, LookupOut
+from .models import ItemAccepted, ItemIn, KnownIn, LookupOut, TranslateIn, TranslateOut
+from .telegram import Telegram
+from .translate import Translator, candidates
+from .tts import Tts
 
 logging.basicConfig(
     level=os.environ.get("LOG_LEVEL", "INFO"),
@@ -34,10 +40,41 @@ async def lifespan(app: FastAPI):
     writer = AnkiWriter(cfg, inbox)
     writer.start()
     writer.wait_ready()  # raises -> uvicorn exits, which is what we want (D3)
+
+    tts = Tts(cfg, inbox, writer)
+    if cfg.tts_enabled:
+        tts.start()
+
     app.state.cfg = cfg
     app.state.inbox = inbox
     app.state.dictionaries = dictionaries
     app.state.writer = writer
+    app.state.tts = tts
+    app.state.translator = Translator(cfg)
+    app.state.bot = None
+    app.state.telegram = None
+    scheduler = None
+
+    if cfg.bot_enabled:
+        telegram = Telegram(cfg.tg_bot_token)
+        app.state.telegram = telegram
+        app.state.bot = Bot(cfg, inbox, dictionaries, writer, telegram,
+                            app.state.translator, tts)
+        if cfg.tg_allowed_chat_ids and cfg.tg_reminder_times:
+            scheduler = AsyncIOScheduler(timezone=cfg.tg_timezone)
+            for slot in cfg.tg_reminder_times:
+                hour, minute = slot.split(":")
+                if _is_quiet(int(hour), cfg.tg_quiet_hours):
+                    log.warning("reminder at %s falls in quiet hours, skipping", slot)
+                    continue
+                scheduler.add_job(
+                    app.state.bot.reminder, CronTrigger(hour=int(hour), minute=int(minute))
+                )
+            scheduler.start()
+            log.info("reminders scheduled at %s (%s)", cfg.tg_reminder_times, cfg.tg_timezone)
+    else:
+        log.info("telegram bot disabled (TG_BOT_TOKEN / TG_WEBHOOK_SECRET unset)")
+
     if not cfg.tokens:
         log.warning("API_TOKENS is empty — every request will be rejected")
     if not cfg.sync_enabled:
@@ -45,7 +82,18 @@ async def lifespan(app: FastAPI):
     try:
         yield
     finally:
+        if scheduler:
+            scheduler.shutdown(wait=False)
+        if app.state.telegram:
+            await app.state.telegram.aclose()
+        if cfg.tts_enabled:
+            tts.stop()
         writer.stop()
+
+
+def _is_quiet(hour: int, window: tuple[int, int]) -> bool:
+    start, end = window
+    return hour >= start or hour < end if start > end else start <= hour < end
 
 
 app = FastAPI(title="Vocabulary Builder", version="0.2.0", lifespan=lifespan)
@@ -57,19 +105,6 @@ def require_token(request: Request, authorization: str = Header(default="")) -> 
     if not client:
         raise HTTPException(status_code=401, detail="invalid or missing bearer token")
     return client
-
-
-def resolve_lang(word: str, requested: str) -> str:
-    """A CJK word is Chinese whatever the client claimed (decision B1)."""
-    return "zh" if is_cjk(word) else (requested or "en")
-
-
-def _annotate(request: Request, word: str, lang: str) -> tuple[str, object]:
-    """Lemma plus whatever the dictionaries know about the word."""
-    dictionaries = request.app.state.dictionaries
-    lemma = lemmatize(word, dictionaries, lang)
-    entry = dictionaries.lookup(lemma, lang) or dictionaries.lookup(word.strip(), lang)
-    return lemma, entry
 
 
 @app.post("/v1/items", status_code=202, response_model=ItemAccepted)
@@ -92,46 +127,32 @@ def create_item(payload: ItemIn, request: Request, client: str = Depends(require
                 },
             )
 
-    word = payload.word.strip()
-    lang = resolve_lang(word, payload.lang)
-    lemma, entry = _annotate(request, word, lang)
-
-    # Dictionary lookups are local and sub-millisecond, so enrichment happens
-    # inline. The async worker of §5.2 only becomes necessary when P2/P3 add
-    # TTS and LLM calls, which are slow and can fail.
-    result = inbox.add_item(
-        {
-            "idem_key": payload.idem_key,
-            "source": payload.source,
-            "client_id": payload.client_id or client,
-            "raw_word": word,
-            "lemma": lemma,
-            "lang": lang,
-            "sentence": payload.sentence,
-            "sentence_masked": render.mask_sentence(
-                payload.sentence, word, payload.word_offset
-            ),
-            "word_offset": payload.word_offset,
-            "context_before": payload.context_before,
-            "context_after": payload.context_after,
-            "url": payload.url,
-            "page_title": payload.page_title,
-            "definition": "\n".join(entry.definitions) if entry else None,
-            "phonetic": entry.phonetic if entry else None,
-            "freq_rank": entry.freq_rank if entry else None,
-            "client_ts": payload.client_ts,
-        },
-        payload.model_dump(),
+    result = capture(
+        inbox,
+        request.app.state.dictionaries,
+        writer,
+        word=payload.word,
+        sentence=payload.sentence,
+        lang=payload.lang,
+        source=payload.source,
+        client_id=payload.client_id or client,
+        idem_key=payload.idem_key,
+        word_offset=payload.word_offset,
+        context_before=payload.context_before,
+        context_after=payload.context_after,
+        url=payload.url,
+        page_title=payload.page_title,
+        client_ts=payload.client_ts,
+        raw_payload=payload.model_dump(),
     )
-
     if result["status"] == "pending":
-        writer.submit(result["id"])
+        request.app.state.tts.submit(result["lemma"], payload.lang)
 
     return ItemAccepted(
         id=result["id"],
         status="queued" if result["status"] == "pending" else result["status"],
         dedup=result["dedup"],
-        lemma=lemma,
+        lemma=result["lemma"],
         existing_contexts=result["existing_contexts"],
     )
 
@@ -149,7 +170,7 @@ def lookup(
 
     word = word.strip()
     lang = resolve_lang(word, lang)
-    lemma, entry = _annotate(request, word, lang)
+    lemma, entry = annotate(request.app.state.dictionaries, word, lang)
     contexts = inbox.context_count(lemma, lang)
 
     return LookupOut(
@@ -185,6 +206,38 @@ def mark_known(payload: KnownIn, request: Request, client: str = Depends(require
     return {"lemma": lemma, "known": payload.known}
 
 
+@app.post("/v1/translate", response_model=TranslateOut)
+def translate_sentence(
+    payload: TranslateIn, request: Request, client: str = Depends(require_token)
+):
+    """Sentence translation and the words in it worth learning (§5.3)."""
+    import anyio
+
+    cfg: Config = request.app.state.cfg
+    found = candidates(
+        payload.text, request.app.state.dictionaries, request.app.state.inbox,
+        cfg.min_freq_rank,
+    )
+    translation = anyio.from_thread.run(
+        request.app.state.translator.translate, payload.text, payload.target
+    )
+    return TranslateOut(translation=translation, candidates=found)
+
+
+@app.post("/tg/{secret}")
+async def telegram_webhook(secret: str, request: Request):
+    """Telegram webhook (§7.1). The path secret is the only credential here."""
+    cfg: Config = request.app.state.cfg
+    bot: Bot = request.app.state.bot
+    if bot is None or not cfg.tg_webhook_secret:
+        raise HTTPException(status_code=404, detail="bot not configured")
+    header = request.headers.get("x-telegram-bot-api-secret-token", "")
+    if secret != cfg.tg_webhook_secret or header != cfg.tg_webhook_secret:
+        raise HTTPException(status_code=403, detail="bad webhook secret")
+    await bot.handle(await request.json())
+    return {"ok": True}
+
+
 @app.get("/v1/stats")
 def stats(request: Request, client: str = Depends(require_token)):
     writer: AnkiWriter = request.app.state.writer
@@ -194,6 +247,9 @@ def stats(request: Request, client: str = Depends(require_token)):
         "last_sync_at": writer.status["last_sync_at"],
         "last_sync_error": writer.status["last_sync_error"],
         "dictionaries": request.app.state.dictionaries.available,
+        "bot": request.app.state.bot is not None,
+        "translation": request.app.state.translator.enabled,
+        "tts_queue": request.app.state.tts.queue_depth,
     }
 
 

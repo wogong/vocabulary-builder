@@ -6,11 +6,16 @@ requires-python = ">=3.13"
 
 # Pinned exactly — the anki API moves between versions (spec R1).
 # Run tests/smoke_anki.py before bumping anything here.
-# P2+ dependencies (python-telegram-bot, apscheduler, edge-tts) are added as
-# those phases land. lemminflect pulls numpy; that is expected.
+# lemminflect pulls numpy; edge-tts pulls aiohttp. Both expected.
+# The Telegram client is ~120 lines of httpx in app/telegram.py rather than a
+# bot framework: webhook mode needs sendMessage, editMessageText,
+# answerCallbackQuery and sendVoice, and little else.
 dependencies = [
     "anki==26.8.1",
+    "apscheduler==3.11.3",
+    "edge-tts==7.2.8",
     "fastapi==0.141.1",
+    "httpx==0.28.1",
     "lemminflect==0.2.3",
     "uvicorn[standard]==0.52.4",
 ]

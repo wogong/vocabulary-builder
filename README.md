@@ -1,4 +1,4 @@
-# 语境化生词收集系统 — P0 + P1
+# 语境化生词收集系统 — P0 + P1 + P2
 
 按 [`vocab-system-spec.md`](vocab-system-spec.md) 实现的 P0 最小闭环：
 
@@ -39,7 +39,21 @@ Chrome 插件 ──HTTPS──▶ app (FastAPI)
 | 离线队列：指数退避、幂等重试、badge 计数 | `extension/background.js` |
 | 词频标记（COCA 排名 + `MIN_FREQ_RANK`） | `app/main.py` |
 
-**尚未实现**：Telegram bot、TTS（P2）；LLM 语境化释义、AnkiConnect 兼容层（P3）。
+**P2 — Telegram bot 与发音**
+
+| 能力 | 位置 |
+|---|---|
+| Webhook + 白名单 + 消息路由 | `app/bot.py`, `app/telegram.py` |
+| 查词流程（释义、加入、发音、已认识） | `app/bot.py` |
+| 句子流程：生词候选 + inline keyboard 多选 | `app/translate.py`, `app/bot.py` |
+| `POST /v1/translate` | `app/main.py` |
+| 定期提醒（静默时段、无内容不打扰、今日免打扰） | `app/bot.py` + APScheduler |
+| 随机抽查（不写回 Anki 调度，D6） | `app/bot.py`, `bot_reviews` 表 |
+| `/undo` 撤销最近一次加入 | `app/bot.py` |
+| TTS 发音写入 `Audio` 字段并随 media 同步 | `app/tts.py` |
+
+**尚未实现**：LLM 语境化释义、AnkiConnect 兼容层（P3）。
+句子翻译需要一个 OpenAI 兼容端点（`LLM_*`），默认关闭 —— 关闭时句子流程仍会挑出生词候选。
 
 ## 部署
 
@@ -153,7 +167,29 @@ uv run python scripts/fetch_dicts.py --dest "$DATA_DIR/dict"
 `chrome://extensions` → 打开开发者模式 → 「加载已解压的扩展程序」→ 选 `extension/` 目录。
 在扩展的「选项」里填服务器地址（`https://api.example.com`）和 token，点「测试连接」。
 
-### 7. 备份（宿主机 crontab）
+### 7. Telegram bot（可选，P2）
+
+1. 找 [@BotFather](https://t.me/BotFather) 建一个 bot，拿到 token
+2. 找 [@userinfobot](https://t.me/userinfobot) 拿到你自己的 chat id
+3. 填进 `.env`：
+
+```
+TG_BOT_TOKEN=<token>
+TG_WEBHOOK_SECRET=<python -c "import secrets;print(secrets.token_urlsafe(24))">
+TG_ALLOWED_CHAT_IDS=<你的 chat id>
+```
+
+4. 重启并注册 webhook（Telegram 只投递到 HTTPS，所以要用 cloudflared 那个域名）：
+
+```bash
+docker compose up -d app
+docker compose exec -T app python scripts/set_webhook.py https://api.example.com
+```
+
+白名单之外的消息一律不响应。发音默认开启（`TTS_ENABLED`），生成的 mp3 写进
+collection 的 media 并随同步下发到手机。
+
+### 8. 备份（宿主机 crontab）
 
 ```cron
 17 *    * * *  cd /path/to/neo && docker compose exec -T app python scripts/backup.py l1
@@ -176,6 +212,8 @@ uv sync                             # 建 .venv 并按 uv.lock 装依赖
 uv run python tests/smoke_anki.py       # R1：钉住 anki API（含真实同步往返），升级 anki 前必跑
 uv run python tests/test_p0.py          # 接口 / 去重合并 / 挖空 / 转义 / 文件锁 / schema 漂移
 uv run python tests/test_p1.py          # 词典 / 词形还原 / lookup / known / 释义写入
+uv run python tests/test_p2.py          # bot 路由 / 候选词 / 抽查 / 提醒 / 撤销 / webhook 鉴权
+uv run python tests/test_media_sync.py  # 真实 edge-tts 音频经同步服务器到达第二台设备
 uv run python tests/test_bootstrap.py   # 两条首次初始化路径 + AnkiWeb 回退守卫
 uv run python tests/test_recovery.py    # collection 被换掉后的重放，以及同步重试退避
 uv run python tests/test_acceptance.py  # 全链路：bootstrap → 采集 → 同步 → 第二台设备看到卡
@@ -246,3 +284,9 @@ docker compose up -d app
   不是自身的原型时才还原 —— 否则 `better` 会变成 `good`、`whose` 会变成 `who`。
 - **卡片上手改过的释义不会被覆盖**。再次采集同一个词只补空字段、追加语境。
 - **重试幂等靠 `idem_key`**：离线队列重发时若服务端已经收过，返回 409，队列按成功处理。
+- **bot 的抽查不写回 Anki 调度**（D6）。评分只进 `bot_reviews` 表 —— 服务端和 AnkiDroid
+  同时写一张卡的调度状态，是这套架构里最容易丢数据的地方。
+- **collection 只能由 writer 线程读写**。需要在别处读（待复习数、`/undo`、TTS 挂载）
+  一律走 `writer.ask(fn)`，它把闭包送到 writer 线程执行再把结果送回来。
+- **TTS 不在 writer 线程里做**。edge-tts 是网络调用，会阻塞写入；它在自己的 worker
+  里合成，只把结果交给 writer 落盘。

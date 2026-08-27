@@ -25,6 +25,7 @@ log = logging.getLogger("vocab.anki")
 FULL_SYNC_REQUIRED = {SyncResp.FULL_SYNC, SyncResp.FULL_DOWNLOAD, SyncResp.FULL_UPLOAD}
 _SHUTDOWN = object()
 _SYNC_NOW = object()
+_ASK = object()
 
 
 class CollectionLocked(RuntimeError):
@@ -114,6 +115,20 @@ class AnkiWriter(threading.Thread):
         """Ask for a sync on the writer thread — the collection is not thread-safe."""
         self._q.put(_SYNC_NOW)
 
+    def ask(self, fn, timeout: float = 30.0):
+        """Run fn(collection) on the writer thread and return its result.
+
+        Everything that touches the collection has to happen here (D2), and
+        callers outside the thread still need answers out of it — due counts,
+        a note lookup, retracting a capture.
+        """
+        box: queue.Queue = queue.Queue(1)
+        self._q.put((_ASK, fn, box))
+        ok, value = box.get(timeout=timeout)
+        if not ok:
+            raise value
+        return value
+
     def stop(self, timeout: float = 120.0) -> None:
         self._q.put(_SHUTDOWN)
         self.join(timeout)
@@ -134,6 +149,9 @@ class AnkiWriter(threading.Thread):
                 break
             if job is _SYNC_NOW:
                 self._sync()
+                continue
+            if isinstance(job, tuple) and job and job[0] is _ASK:
+                self._answer(job[1], job[2])
                 continue
             if job is not None:
                 self._project(job)
@@ -168,6 +186,20 @@ class AnkiWriter(threading.Thread):
             self.status["collection_open"] = False
             fcntl.flock(self._lock_fd, fcntl.LOCK_UN)
             self._lock_fd.close()
+
+    def _answer(self, fn, box):
+        try:
+            result = fn(self.col)
+        except Exception as exc:  # travels back to the caller, not swallowed
+            box.put((False, exc))
+            return
+        # A read leaves nothing to sync; a write must say so itself.
+        box.put((True, result))
+
+    def mark_dirty(self):
+        """Call after an ask() that changed the collection."""
+        self._dirty = True
+        self._last_write = time.monotonic()
 
     # -- projection -----------------------------------------------------
 

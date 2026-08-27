@@ -46,3 +46,14 @@ class KnownIn(BaseModel):
     word: str = Field(min_length=1, max_length=100)
     lang: str = "en"
     known: bool = True
+
+
+class TranslateIn(BaseModel):
+    text: str = Field(min_length=1, max_length=4000)
+    lang: str = "en"
+    target: str = "zh"
+
+
+class TranslateOut(BaseModel):
+    translation: str | None = None
+    candidates: list[dict] = []

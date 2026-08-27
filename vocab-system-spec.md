@@ -1,6 +1,6 @@
 # 语境化生词收集系统 — 技术规格说明书
 
-> 版本 v0.5 · 状态：P0 与 P1 已实现（决策留档见 §11）
+> 版本 v0.6 · 状态：P0 / P1 / P2 已实现（决策留档见 §11）
 >
 > 一句话描述：在浏览器和 Telegram 中查词时，自动捕获单词及其所在语境，经服务端处理后实时写入 Anki 牌组，并提供轻量的复习提醒。
 
@@ -847,11 +847,28 @@ L3 是最后防线：即使 collection 彻底损坏、sync 冲突炸了、sync s
 
 ### P2 — Telegram Bot
 
-- [ ] Webhook + 白名单 + 查词流程
-- [ ] `/v1/translate` + 句子流程 + inline keyboard 选词
-- [ ] 定期提醒
-- [ ] 随机抽查（抽查模式）
-- [ ] TTS 发音（edge-tts + `sync_media()` 媒体同步验证）
+- [x] Webhook + 白名单 + 查词流程
+- [x] `/v1/translate` + 句子流程 + inline keyboard 选词
+- [x] 定期提醒
+- [x] 随机抽查（抽查模式）
+- [x] TTS 发音（edge-tts + `sync_media()` 媒体同步验证）
+
+由 `tests/test_p2.py`（45 项）与 `tests/test_media_sync.py`（10 项）验证。
+后者跑真实 edge-tts 合成 → 写入 media → 经自建 sync server → 第二个 collection
+下载并校验字节数，B3 的「media 同步是 headless 已知痛点」由此确认可行。
+
+**实现修正：**
+
+1. **不用 bot 框架。** §5.1 列的是 python-telegram-bot / aiogram，实际用 httpx 直接
+   调 Bot API（`app/telegram.py` 约 120 行）。webhook 模式只需要 sendMessage、
+   editMessageText、answerCallbackQuery、sendVoice 四个方法，引入框架反而要多协调
+   一个事件循环。
+2. **句子翻译需要外部服务。** B2 把 LLM 推到 P3，而 §7.4 的句子流程依赖翻译。
+   现在做成可插拔（OpenAI 兼容端点，`LLM_*`），默认关闭；关闭时句子流程照常给出
+   生词候选 —— 那才是「让用户可以选择生词」这个目标的核心。
+3. **collection 的跨线程读取。** 待复习数、`/undo`、TTS 挂载都需要在 writer 线程之外
+   访问 collection。新增 `writer.ask(fn)`：把闭包投递到 writer 线程执行并回传结果，
+   D2 的单写入者约束不被破坏。
 
 ### P3 — 可选增强
 
