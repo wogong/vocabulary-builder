@@ -28,6 +28,27 @@ ECDICT_ASSET = "ecdict-sqlite-"
 CEDICT_URL = "https://www.mdbg.net/chinese/export/cedict/cedict_1_0_ts_utf-8_mdbg.txt.gz"
 
 
+def ensure_writable(directory: Path) -> None:
+    """Check before downloading, not after: ECDICT is a 206 MiB mistake to repeat.
+
+    The data directory is usually created by Docker and therefore owned by
+    root, while this script runs as you.
+    """
+    probe = directory / ".write-test"
+    try:
+        directory.mkdir(parents=True, exist_ok=True)
+        probe.touch()
+        probe.unlink()
+    except OSError as exc:
+        sys.exit(
+            f"{directory} is not writable ({exc.strerror}).\n"
+            f"Docker usually creates this directory as root.\n"
+            f"Fix with:\n"
+            f"  docker run --rm -v {directory.parent}:/v alpine "
+            f"chown -R $(id -u):$(id -g) /v/{directory.name}"
+        )
+
+
 def download(url: str, dest: Path, label: str) -> Path:
     print(f"downloading {label}\n  {url}")
     dest.parent.mkdir(parents=True, exist_ok=True)
@@ -93,7 +114,7 @@ def main() -> int:
     args = parser.parse_args()
 
     dest = Path(args.dest).resolve()
-    dest.mkdir(parents=True, exist_ok=True)
+    ensure_writable(dest)
 
     if not args.cedict_only:
         fetch_ecdict(dest)

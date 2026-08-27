@@ -52,6 +52,10 @@ docker compose up -d --build
 
 `API_TOKENS` 里的 token 自己生成：`python -c "import secrets;print(secrets.token_urlsafe(32))"`
 
+`DATA_DIR` 决定 collection、`inbox.db`、同步服务器状态放在宿主机哪里，默认 `./data`。
+**务必指到同步盘（Dropbox / iCloud）之外** —— collection 是活的 SQLite 数据库，
+被云盘同步工具在写入过程中抓走副本可能损坏它，而且 media 动辄几百 MB。
+
 端口由 `.env` 里的 `APP_PORT`（默认 8000）和 `SYNC_SERVER_PORT`（默认 8080）控制，
 容器内监听端口和发布到 `127.0.0.1` 的端口是同一个值。`SYNC_ENDPOINT` 不用管 ——
 compose 会按 `SYNC_SERVER_PORT` 自动拼出来，不会跟实际端口对不上。
@@ -129,12 +133,20 @@ compose 只在 `127.0.0.1` 暴露端口，由你已有的 cloudflared 配两条 
 没有词典也能用 —— 只是卡片上不会有释义、音标和词频，词形还原退到 lemminflect。
 
 ```bash
-uv run python scripts/fetch_dicts.py --dest data/dict
+uv run python scripts/fetch_dicts.py --dest "$DATA_DIR/dict"
 ```
 
-ECDICT 解压后约 **800 MB**，`data/` 在 Dropbox 之类的同步盘里的话，
-请把 `--dest` 指到同步盘外，并把 `.env` 里的 `ECDICT_PATH` 改成对应路径。
-CC-CEDICT 只有 4 MB，无所谓。
+`$DATA_DIR/dict` 会被挂载成容器里的 `/data/dict`，也就是 `.env` 里 `ECDICT_PATH`
+指向的位置。ECDICT 解压后约 **812 MB**，注意磁盘空间；CC-CEDICT 只有 4 MB。
+
+两个常见坑：
+
+- **目标目录可能是 root 属主**（docker 建的），脚本会在下载前就检查可写性并给出
+  chown 命令，不会白下 206 MB。
+- **从 P0 升上来的 `.env` 里没有 `ECDICT_PATH` / `CEDICT_PATH`**（P1 才加的），
+  路径为空时词典静默禁用。对照 `.env.example` 补齐，启动日志里也会告警。
+
+装好后 `GET /v1/stats` 的 `dictionaries` 应为 `{"ecdict": true, "cedict": true}`。
 
 ### 6. 装插件
 
@@ -174,7 +186,8 @@ node tests/test_queue.js                # 插件离线队列：退避、幂等�
 本地跑服务（不用 docker）：
 
 ```bash
-export ANKI_COLLECTION_PATH=./data/anki/collection.anki2 INBOX_DB=./data/app/inbox.db
+export ANKI_COLLECTION_PATH="$DATA_DIR/anki/collection.anki2"
+export INBOX_DB="$DATA_DIR/app/inbox.db"
 export API_TOKENS=dev:dev-token
 uv run uvicorn app.main:app --reload --workers 1 --port 8000   # 或设 UVICORN_PORT
 ```
@@ -227,6 +240,8 @@ docker compose up -d app
 - **`Intl.Segmenter` 不认缩写**。ICU 默认无缩写抑制表，"Mr. Smith" 会被切成两句，
   `extension/sentence.js` 里对头衔类缩写做了合并。
 - **anki 需要 glibc ≥ 2.35**（manylinux_2_35 wheel），所以基础镜像是 bookworm，Alpine 不行。
+- **数据目录不要放在云同步盘里**。collection 是活的 SQLite 数据库，Dropbox 之类的工具
+  在写入中途抓副本可能损坏它；media 也有几百 MB。用 `DATA_DIR` 指到别处。
 - **词形还原以 ECDICT 的变形表为准**，lemminflect 只在词典查不到时兜底，且只有当原词
   不是自身的原型时才还原 —— 否则 `better` 会变成 `good`、`whose` 会变成 `who`。
 - **卡片上手改过的释义不会被覆盖**。再次采集同一个词只补空字段、追加语境。

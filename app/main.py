@@ -167,6 +167,7 @@ def lookup(
         existing_contexts=contexts,
         audio_url=None,  # P2, once TTS lands
         dictionary=entry.source if entry else None,
+        dictionary_ready=request.app.state.dictionaries.ready_for(lang),
     )
 
 

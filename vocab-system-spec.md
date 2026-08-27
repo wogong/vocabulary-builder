@@ -749,10 +749,10 @@ services:
       SYNC_ENDPOINT: http://anki-sync:${SYNC_SERVER_PORT:-8080}/
     ports:
       - "127.0.0.1:${APP_PORT:-8000}:${APP_PORT:-8000}"
-    volumes:
-      - ./data/anki:/data/anki       # collection + media
-      - ./data/app:/data/app         # inbox.db
-      - ./data/dict:/data/dict:ro    # ECDICT + CC-CEDICT（P1 起）
+    volumes:                         # DATA_DIR 默认 ./data，应指到云同步盘之外
+      - ${DATA_DIR:-./data}/anki:/data/anki    # collection + media
+      - ${DATA_DIR:-./data}/app:/data/app      # inbox.db
+      - ${DATA_DIR:-./data}/dict:/data/dict:ro # ECDICT + CC-CEDICT（P1 起）
     healthcheck:                     # 镜像里没有 curl，用 python 探活
       test: ["CMD", "python", "-c", "import os,urllib.request;urllib.request.urlopen('http://127.0.0.1:'+os.environ.get('UVICORN_PORT','8000')+'/healthz')"]
       interval: 30s
@@ -772,7 +772,7 @@ services:
       SYNC_USER1: ${SYNC_USERNAME}:${SYNC_PASSWORD}
       SYNC_BASE: /data/sync
     volumes:
-      - ./data/sync:/data/sync
+      - ${DATA_DIR:-./data}/sync:/data/sync
 ```
 
 两个端口只绑定 `127.0.0.1`，不直接对公网开放。公网 HTTPS 由宿主机已有的 cloudflared 发布：两条 public hostname 分别指向 `localhost:$APP_PORT`（`/v1/*`、`/tg/*`）与 `localhost:$SYNC_SERVER_PORT`（sync），TLS 由 Cloudflare 终结。**AnkiConnect 兼容层若启用，同样只经 tunnel 暴露并强制 token。**

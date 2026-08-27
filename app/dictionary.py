@@ -121,6 +121,9 @@ class Dictionaries:
     @staticmethod
     def _open(cls, path: str, label: str):
         if not path:
+            # Silence here is how a missing config key turns into a feature that
+            # quietly does nothing.
+            log.warning("%s path is not configured — words will be captured unannotated", label)
             return None
         if not Path(path).exists():
             log.warning("%s not found at %s — words will be captured unannotated", label, path)
@@ -134,6 +137,14 @@ class Dictionaries:
     @property
     def available(self) -> dict:
         return {"ecdict": self.ecdict is not None, "cedict": self.cedict is not None}
+
+    def ready_for(self, lang: str) -> bool:
+        """Whether a dictionary is loaded for this language.
+
+        Distinct from "the word was found": a client needs to tell a missing
+        dictionary apart from a word the dictionary simply does not list.
+        """
+        return (self.cedict if lang == "zh" else self.ecdict) is not None
 
     def lookup(self, word: str, lang: str = "en") -> Entry | None:
         if lang == "zh" or is_cjk(word):

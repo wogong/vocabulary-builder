@@ -181,7 +181,9 @@
     } else {
       const row = document.createElement('div');
       row.className = 'muted';
-      row.textContent = info.dictionary === null ? '未配置词典' : '词典里没有这个词';
+      row.textContent = info.dictionary_ready
+        ? '词典里没有这个词'
+        : '未安装词典 — 仍可收集，只是卡片上没有释义';
       defs.appendChild(row);
     }
 

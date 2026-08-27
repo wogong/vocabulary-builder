@@ -1,6 +1,10 @@
 # Ports bind to 127.0.0.1 only. Publishing to the internet is the host's
 # cloudflared instance (spec §8.1): point one hostname at localhost:$APP_PORT
 # for the API and another at localhost:$SYNC_SERVER_PORT for Anki sync.
+#
+# DATA_DIR holds the collection, inbox.db and the sync server's state. Keep it
+# out of any synced folder (Dropbox, iCloud): the collection is a live SQLite
+# database and the media folder runs to hundreds of megabytes.
 
 services:
   app:
@@ -15,9 +19,9 @@ services:
     ports:
       - "127.0.0.1:${APP_PORT:-8000}:${APP_PORT:-8000}"
     volumes:
-      - ./data/anki:/data/anki       # collection + media
-      - ./data/app:/data/app         # inbox.db
-      - ./data/dict:/data/dict:ro    # ECDICT + CC-CEDICT (P1, optional)
+      - ${DATA_DIR:-./data}/anki:/data/anki    # collection + media
+      - ${DATA_DIR:-./data}/app:/data/app      # inbox.db
+      - ${DATA_DIR:-./data}/dict:/data/dict:ro # ECDICT + CC-CEDICT (P1, optional)
     healthcheck:
       test:
         - CMD
@@ -45,4 +49,4 @@ services:
     ports:
       - "127.0.0.1:${SYNC_SERVER_PORT:-8080}:${SYNC_SERVER_PORT:-8080}"
     volumes:
-      - ./data/sync:/data/sync
+      - ${DATA_DIR:-./data}/sync:/data/sync

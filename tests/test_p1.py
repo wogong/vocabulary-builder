@@ -112,6 +112,10 @@ def main():
         missing = Dictionaries(str(tmp / "nope.db"), "")
         check("missing dictionary is not fatal", missing.lookup("ubiquitous") is None)
         check("availability reported", missing.available == {"ecdict": False, "cedict": False})
+        check("not ready for either language",
+              not missing.ready_for("en") and not missing.ready_for("zh"))
+        check("ready_for is per language",
+              dicts.ready_for("en") and dicts.ready_for("zh"))
 
         print("lemmatisation")
         from app.lemma import lemmatize
@@ -138,6 +142,7 @@ def main():
             check("not flagged common", body["common"] is False, body)
             check("not in deck yet", body["in_deck"] is False, body)
             check("dictionary named", body["dictionary"] == "ecdict", body)
+            check("dictionary reported ready", body["dictionary_ready"] is True, body)
             check("no LLM gloss in P1", body["context_definition"] is None, body)
 
             common = client.get("/v1/lookup", params={"word": "the"}, headers=AUTH).json()
@@ -155,6 +160,12 @@ def main():
             unknown = client.get(
                 "/v1/lookup", params={"word": "zzzznotaword"}, headers=AUTH).json()
             check("unknown word degrades cleanly", unknown["definitions"] == [], unknown)
+            # The card words these two cases differently, so they must be
+            # distinguishable: a loaded dictionary that lacks the word still
+            # reports ready.
+            check("missing word != missing dictionary",
+                  unknown["dictionary"] is None and unknown["dictionary_ready"] is True,
+                  unknown)
 
             print("POST /v1/known")
             check("mark known", client.post(

@@ -38,7 +38,8 @@ class LookupOut(BaseModel):
     in_deck: bool = False
     existing_contexts: int = 0
     audio_url: str | None = None
-    dictionary: str | None = None
+    dictionary: str | None = None      # which dictionary answered, if any
+    dictionary_ready: bool = False     # whether one was loaded at all
 
 
 class KnownIn(BaseModel):
