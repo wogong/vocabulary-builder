@@ -177,17 +177,23 @@ uv run python scripts/fetch_dicts.py --dest "$DATA_DIR/dict"
 TG_BOT_TOKEN=<token>
 TG_WEBHOOK_SECRET=<python -c "import secrets;print(secrets.token_urlsafe(24))">
 TG_ALLOWED_CHAT_IDS=<你的 chat id>
+TG_PUBLIC_URL=https://api.example.com     # cloudflared 那个域名
 ```
 
-4. 重启并注册 webhook（Telegram 只投递到 HTTPS，所以要用 cloudflared 那个域名）：
+4. 重启即可 —— 填了 `TG_PUBLIC_URL` 的话，webhook 会在启动时自动注册：
 
 ```bash
 docker compose up -d app
-docker compose exec -T app python scripts/set_webhook.py https://api.example.com
+docker compose logs app | grep webhook
 ```
 
 白名单之外的消息一律不响应。发音默认开启（`TTS_ENABLED`），生成的 mp3 写进
 collection 的 media 并随同步下发到手机。
+
+> Telegram 只投递到 **HTTPS**，且**一个 bot token 只能注册一个 webhook**。如果另一套
+> 部署共用同一个 token，后启动的那个会把投递抢走 —— 启动日志里会明确写出它接管了谁。
+> 想手工管理就把 `TG_PUBLIC_URL` 留空，改用 `scripts/set_webhook.py`
+> （它还能 `--delete` 注销，以及查当前注册到了哪里）。
 
 ### 8. 备份（宿主机 crontab）
 

@@ -71,6 +71,7 @@ class Config:
     tg_bot_token: str
     tg_allowed_chat_ids: tuple[int, ...]
     tg_webhook_secret: str
+    tg_public_url: str
     tg_timezone: str
     tg_reminder_times: tuple[str, ...]
     tg_quiet_hours: tuple[int, int]
@@ -120,6 +121,7 @@ class Config:
             tg_bot_token=os.environ.get("TG_BOT_TOKEN", ""),
             tg_allowed_chat_ids=_ids(os.environ.get("TG_ALLOWED_CHAT_IDS", "")),
             tg_webhook_secret=os.environ.get("TG_WEBHOOK_SECRET", ""),
+            tg_public_url=os.environ.get("TG_PUBLIC_URL", "").rstrip("/"),
             tg_timezone=os.environ.get("TG_TIMEZONE", "Asia/Shanghai"),
             tg_reminder_times=_times(os.environ.get("TG_REMINDER_TIMES", "09:00,21:00")),
             tg_quiet_hours=_quiet(os.environ.get("TG_QUIET_HOURS", "23:00-08:00")),
@@ -140,3 +142,10 @@ class Config:
     @property
     def bot_enabled(self) -> bool:
         return bool(self.tg_bot_token and self.tg_webhook_secret)
+
+    @property
+    def webhook_url(self) -> str:
+        """Where Telegram should deliver, derived from the public hostname."""
+        if not (self.tg_public_url and self.tg_webhook_secret):
+            return ""
+        return f"{self.tg_public_url}/tg/{self.tg_webhook_secret}"

@@ -60,6 +60,7 @@ async def lifespan(app: FastAPI):
         app.state.telegram = telegram
         app.state.bot = Bot(cfg, inbox, dictionaries, writer, telegram,
                             app.state.translator, tts)
+        await register_webhook(telegram, cfg)
         if cfg.tg_allowed_chat_ids and cfg.tg_reminder_times:
             scheduler = AsyncIOScheduler(timezone=cfg.tg_timezone)
             for slot in cfg.tg_reminder_times:
@@ -89,6 +90,51 @@ async def lifespan(app: FastAPI):
         if cfg.tts_enabled:
             tts.stop()
         writer.stop()
+
+
+def redact(url: str, secret: str) -> str:
+    """Webhook URLs carry the secret in the path; keep it out of the logs."""
+    return url.replace(secret, "***") if secret else url
+
+
+async def register_webhook(telegram, cfg) -> str:
+    """Point Telegram at us on startup, if a public URL is configured (§7.1).
+
+    Telegram keeps exactly one webhook per bot token, so a second deployment
+    sharing the token silently steals delivery from the first. That is worth a
+    loud log line rather than a silent takeover.
+    """
+    desired = cfg.webhook_url
+    if not desired:
+        log.info(
+            "TG_PUBLIC_URL unset — register the webhook manually with "
+            "scripts/set_webhook.py, or set it and restart"
+        )
+        return ""
+    if not desired.startswith("https://"):
+        log.error("TG_PUBLIC_URL must be https:// — Telegram will not deliver to %s",
+                  cfg.tg_public_url)
+        return ""
+    try:
+        info = await telegram.call("getWebhookInfo")
+        current = info.get("url") or ""
+        if current == desired:
+            log.info("telegram webhook already points here (%s)",
+                     redact(desired, cfg.tg_webhook_secret))
+            return desired
+        if current:
+            log.warning(
+                "telegram webhook was pointing at %s — taking it over. If another "
+                "deployment shares this bot token, it will stop receiving messages.",
+                redact(current, cfg.tg_webhook_secret),
+            )
+        await telegram.set_webhook(desired, cfg.tg_webhook_secret)
+        log.info("telegram webhook registered -> %s", redact(desired, cfg.tg_webhook_secret))
+        return desired
+    except Exception as exc:
+        # Not fatal: the bot still answers whatever Telegram already delivers.
+        log.warning("could not register the telegram webhook: %s", exc)
+        return ""
 
 
 def _is_quiet(hour: int, window: tuple[int, int]) -> bool:

@@ -139,6 +139,55 @@ def main():
             TG_BOT_TOKEN="token", TG_WEBHOOK_SECRET="s3cret",
             TG_ALLOWED_CHAT_IDS=str(CHAT), TTS_ENABLED="false", LLM_ENABLED="false",
         )
+        print("automatic webhook registration (§7.1)")
+        run_ = asyncio.run
+        from app.main import register_webhook
+
+        class FakeApi:
+            def __init__(self, current=""):
+                self.current, self.registered = current, None
+            async def call(self, method, **params):
+                if method == "getWebhookInfo":
+                    return {"url": self.current}
+                raise AssertionError(method)
+            async def set_webhook(self, url, secret):
+                self.registered = (url, secret)
+
+        class Cfg:
+            tg_webhook_secret = "s3cret"
+            tg_public_url = "https://api.example.com"
+            webhook_url = "https://api.example.com/tg/s3cret"
+
+        api = FakeApi()
+        check("registers when nothing is set",
+              run_(register_webhook(api, Cfg())) == Cfg.webhook_url
+              and api.registered == (Cfg.webhook_url, "s3cret"), api.registered)
+
+        api = FakeApi(current=Cfg.webhook_url)
+        run_(register_webhook(api, Cfg()))
+        check("skips when it already points here", api.registered is None)
+
+        api = FakeApi(current="https://old.example.com/tg/s3cret")
+        run_(register_webhook(api, Cfg()))
+        check("takes over a stale registration", api.registered is not None)
+
+        class NoUrl(Cfg):
+            tg_public_url = ""
+            webhook_url = ""
+        api = FakeApi()
+        check("no public url -> does nothing", run_(register_webhook(api, NoUrl())) == "")
+
+        class Insecure(Cfg):
+            tg_public_url = "http://api.example.com"
+            webhook_url = "http://api.example.com/tg/s3cret"
+        check("refuses plain http", run_(register_webhook(api, Insecure())) == "")
+
+        class Boom:
+            async def call(self, *a, **k):
+                raise RuntimeError("telegram unreachable")
+        check("a failed registration does not stop startup",
+              run_(register_webhook(Boom(), Cfg())) == "")
+
         print("webhook (§7.1)")
         # Before the manual writer takes the collection lock: TestClient starts
         # its own writer.
