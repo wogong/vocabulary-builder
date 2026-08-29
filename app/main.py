@@ -305,10 +305,15 @@ def list_items(
     request: Request,
     limit: int = Query(default=50, ge=1, le=500),
     q: str = Query(default="", max_length=64),
+    include_gone: bool = Query(default=False),
     client: str = Depends(require_token),
 ):
-    """Recent captures, newest first — what the extension's review page shows."""
-    return {"items": request.app.state.inbox.recent(limit, q.strip())}
+    """Recent captures, newest first — what the extension's review page shows.
+
+    include_gone brings back retracted and duplicate rows; they are kept in the
+    inbox forever (D1) but would otherwise crowd out the live ones.
+    """
+    return {"items": request.app.state.inbox.recent(limit, q.strip(), include_gone)}
 
 
 @app.delete("/v1/items/{item_id}")

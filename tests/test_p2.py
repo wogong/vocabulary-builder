@@ -235,14 +235,36 @@ def main():
                   client.get("/v1/items", params={"q": "zzzz"},
                              headers=auth).json()["items"] == [])
 
+            dup = client.post("/v1/items", headers=auth, json={
+                "word": "blunder", "sentence": "A blunder I did not mean to save.",
+                "word_offset": 2,
+            }).json()
+            check("a repeat capture is a duplicate", dup["dedup"] == "duplicate", dup)
+            seen = client.get("/v1/items", params={"include_gone": "true"},
+                              headers=auth).json()["items"]
+            check("the duplicate is 'skipped', never 'retracted'",
+                  [i for i in seen if i["id"] == dup["id"]][0]["status"] == "skipped",
+                  seen[0])
+            check("duplicates stay out of the default listing",
+                  dup["id"] not in
+                  [i["id"] for i in client.get("/v1/items", headers=auth).json()["items"]])
+
             gone = client.delete(f"/v1/items/{made['id']}", headers=auth)
             check("delete succeeds", gone.status_code == 200, gone.text)
             check("delete removes the whole note (it had one context)",
                   gone.json()["removed"] == "note", gone.json())
             after = client.get("/v1/items", headers=auth).json()["items"]
-            check("deleted item is retracted, not hidden",
-                  after[0]["id"] == made["id"] and after[0]["status"] == "skipped"
-                  and after[0]["anki_note_id"] is None, after[0])
+            check("a deleted capture drops out of the default listing",
+                  made["id"] not in [i["id"] for i in after], after)
+            kept = {i["id"]: i for i in client.get(
+                "/v1/items", params={"include_gone": "true"},
+                headers=auth).json()["items"]}
+            check("but it is still in the inbox (D1), marked retracted",
+                  made["id"] in kept and kept[made["id"]]["status"] == "retracted"
+                  and kept[made["id"]]["anki_note_id"] is None, kept.get(made["id"]))
+            check("a retraction reads differently from a duplicate",
+                  kept[made["id"]]["status"] != kept[dup["id"]]["status"],
+                  (kept[made["id"]]["status"], kept[dup["id"]]["status"]))
             check("deleting it again is a 404, not a second retraction",
                   client.delete(f"/v1/items/{made['id']}", headers=auth).status_code
                   in (200, 404))

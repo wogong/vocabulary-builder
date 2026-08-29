@@ -23,6 +23,7 @@
       }
       button:disabled { opacity: .5; cursor: default; }
       button.danger { border-color: #d9b0b0; color: #b71c1c; }
+      .toggle { color: #777; font-size: 12px; white-space: nowrap; }
       #status { font-size: 13px; min-height: 20px; }
       .ok { color: #1b5e20; }
       .error { color: #b71c1c; }
@@ -47,10 +48,12 @@
     <p class="hint">
       删除会同时移除 Anki 卡片上的这条语境和服务端的采集记录。
       一个词有多条语境时，删掉最后一条才会删除整张卡。
+      删除只是标记，采集记录会一直保留（D1），默认不显示。
     </p>
 
     <div class="bar">
       <input id="q" type="search" placeholder="按词搜索，回车确认" />
+      <label class="toggle"><input id="showGone" type="checkbox" /> 显示已删除</label>
       <button id="refresh">刷新</button>
     </div>
     <p id="status"></p>

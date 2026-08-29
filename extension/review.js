@@ -49,10 +49,19 @@ function sentenceNode(item) {
   return el;
 }
 
+// 'retracted' is a deletion; 'skipped' is a duplicate capture that was never
+// projected into a card. Both are inert, but calling a duplicate "deleted"
+// would tell the user their word is gone when it is still in the deck.
+const GONE = {
+  retracted: '已删除',
+  skipped: '重复采集',
+  failed: '写入失败',
+};
+
 function row(item, onDelete) {
   const li = document.createElement('li');
-  const dead = item.status === 'skipped' || item.status === 'failed';
-  if (dead) li.className = 'gone';
+  const gone = GONE[item.status];
+  if (gone) li.className = 'gone';
 
   const word = document.createElement('div');
   word.className = 'word';
@@ -83,8 +92,8 @@ function row(item, onDelete) {
 
   const button = document.createElement('button');
   button.className = 'danger';
-  if (dead) {
-    button.textContent = '已删除';
+  if (gone) {
+    button.textContent = gone;
     button.disabled = true;
   } else {
     button.textContent = '删除';
@@ -107,7 +116,8 @@ async function remove(item, button) {
         : `已删除 ${out.lemma} 的这条语境`,
       'ok',
     );
-    await load();
+    button.textContent = GONE.retracted;
+    button.closest('li').className = 'gone';
   } catch (err) {
     button.disabled = false;
     button.textContent = '删除';
@@ -119,7 +129,9 @@ async function load() {
   const list = $('list');
   const query = $('q').value.trim();
   try {
-    const body = await api(`/v1/items?limit=200&q=${encodeURIComponent(query)}`);
+    const gone = $('showGone').checked ? '&include_gone=true' : '';
+    const body = await api(
+      `/v1/items?limit=200&q=${encodeURIComponent(query)}${gone}`);
     list.replaceChildren(...body.items.map((item) => row(item, remove)));
     if (!body.items.length) say(query ? '没有匹配的词' : '还没有收集任何词');
     else if (status.className !== 'ok') say(`${body.items.length} 条`);
@@ -130,5 +142,6 @@ async function load() {
 }
 
 $('refresh').addEventListener('click', () => { say(''); load(); });
+$('showGone').addEventListener('change', () => { say(''); load(); });
 $('q').addEventListener('change', () => { say(''); load(); });
 load();

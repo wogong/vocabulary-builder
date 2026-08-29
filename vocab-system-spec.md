@@ -414,8 +414,13 @@ Bot 主要使用。
 | `DELETE` | `/v1/items/{id}` | 软删除，同时从 Anki 移除该语境 |
 
 `DELETE` 必须两边都动：只删卡片，`reproject.py` 会把它replay回来（D1）；
-只删 inbox 行，卡片会留在牌组里。删除后该行状态转 `skipped`、`anki_note_id`
-清空，复习页仍然列出它（标记为「已删除」），这样误删是看得见的。
+只删 inbox 行，卡片会留在牌组里。
+
+删除是**软删除**：状态转 `retracted`、`anki_note_id` 清空，行本身永远保留，
+inbox 才能一直是可replay的源头（D1）。`retracted` 与 `skipped` 是两回事 ——
+后者是「同一个词同一句话又采了一次」，从来没投影成卡片，词还在牌组里。
+两者都不算 live（不进 `LIVE`、不计入 `today`/`distinct_words`），
+默认也不出现在复习列表里，要看得加 `?include_gone=true`。
 
 复习界面放在**插件页**而不是服务端：服务端经 cloudflared 暴露在公网，多一个
 管理页就多一份需要自己做登录的攻击面；插件页只有本人的浏览器配置能打开，

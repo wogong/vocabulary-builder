@@ -141,8 +141,8 @@ class Inbox:
                 )
             }
             today = con.execute(
-                "SELECT COUNT(*) FROM items "
-                "WHERE created_at >= date('now') AND status != 'skipped'"
+                f"SELECT COUNT(*) FROM items "
+                f"WHERE created_at >= date('now') AND status IN {LIVE}"
             ).fetchone()[0]
             distinct = con.execute(
                 f"SELECT COUNT(DISTINCT lemma) FROM items WHERE status IN {LIVE}"
@@ -265,20 +265,26 @@ class Inbox:
                 )
             ]
 
-    def recent(self, limit: int = 50, query: str = "") -> list[dict]:
+    def recent(self, limit: int = 50, query: str = "",
+               include_gone: bool = False) -> list[dict]:
         """Newest captures first, for the review page (§5.3).
 
-        Includes retracted rows so a deletion is visible rather than silently
-        vanishing; the caller shows the status.
+        Retracted and duplicate rows are kept forever — the inbox is the source
+        of truth (D1) and nothing is hard-deleted — but they are noise in a
+        review list, so they are left out unless asked for.
         """
         sql = (
             "SELECT id, lemma, raw_word, lang, sentence, word_offset, url, page_title, "
             "source, status, anki_note_id, definition, created_at FROM items"
         )
-        params: list = []
+        where, params = [], []
+        if not include_gone:
+            where.append(f"status IN {LIVE}")
         if query:
-            sql += " WHERE lemma LIKE ? OR raw_word LIKE ?"
+            where.append("(lemma LIKE ? OR raw_word LIKE ?)")
             params += [f"%{query}%"] * 2
+        if where:
+            sql += " WHERE " + " AND ".join(where)
         sql += " ORDER BY id DESC LIMIT ?"
         params.append(max(1, min(500, limit)))
         with self._conn() as con:
@@ -295,5 +301,5 @@ class Inbox:
     def mark_retracted(self, item_id: int) -> None:
         with self._conn() as con:
             con.execute(
-                "UPDATE items SET status='skipped', anki_note_id=NULL WHERE id=?", (item_id,)
+                "UPDATE items SET status='retracted', anki_note_id=NULL WHERE id=?", (item_id,)
             )

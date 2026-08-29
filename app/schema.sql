@@ -24,7 +24,11 @@ CREATE TABLE IF NOT EXISTS items (
     translation     TEXT,                 -- P2
     audio_file      TEXT,                 -- P2 (TTS)
     freq_rank       INTEGER,              -- P1
-    status          TEXT NOT NULL,        -- pending|enriched|committed|skipped|failed
+    status          TEXT NOT NULL,        -- pending|enriched|committed|failed
+                                          -- skipped   = duplicate capture, never projected
+                                          -- retracted = deleted by the user
+                                          -- Nothing is hard-deleted: the inbox is the
+                                          -- source of truth and must stay replayable (D1)
     anki_note_id    INTEGER,
     merge_target    INTEGER,
     error           TEXT,
