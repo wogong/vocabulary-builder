@@ -265,6 +265,25 @@ class Inbox:
                 )
             ]
 
+    def recent(self, limit: int = 50, query: str = "") -> list[dict]:
+        """Newest captures first, for the review page (§5.3).
+
+        Includes retracted rows so a deletion is visible rather than silently
+        vanishing; the caller shows the status.
+        """
+        sql = (
+            "SELECT id, lemma, raw_word, lang, sentence, word_offset, url, page_title, "
+            "source, status, anki_note_id, definition, created_at FROM items"
+        )
+        params: list = []
+        if query:
+            sql += " WHERE lemma LIKE ? OR raw_word LIKE ?"
+            params += [f"%{query}%"] * 2
+        sql += " ORDER BY id DESC LIMIT ?"
+        params.append(max(1, min(500, limit)))
+        with self._conn() as con:
+            return [dict(r) for r in con.execute(sql, params)]
+
     def last_committed(self) -> dict | None:
         with self._conn() as con:
             row = con.execute(

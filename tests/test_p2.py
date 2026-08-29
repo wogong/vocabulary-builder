@@ -215,6 +215,42 @@ def main():
             check("/v1/translate returns candidates without an LLM",
                   len(trans["candidates"]) >= 3 and trans["translation"] is None, trans)
 
+            print("review page api (§5.3)")
+            auth = {"Authorization": "Bearer t"}
+            made = client.post("/v1/items", headers=auth, json={
+                "word": "blunder", "sentence": "A blunder I did not mean to save.",
+                "word_offset": 2, "url": "https://example.com/a", "page_title": "A page",
+            }).json()
+            time.sleep(2)  # let the writer commit it before we ask for the note
+            listed = client.get("/v1/items", headers=auth).json()["items"]
+            check("listing returns the capture", listed and listed[0]["id"] == made["id"], listed)
+            check("listing carries what the page renders",
+                  listed[0]["sentence"] and listed[0]["url"] == "https://example.com/a"
+                  and listed[0]["word_offset"] == 2, listed[0])
+            check("listing needs a token",
+                  client.get("/v1/items").status_code == 401)
+            found = client.get("/v1/items", params={"q": "blund"}, headers=auth).json()["items"]
+            check("search matches by word", [i["id"] for i in found] == [made["id"]], found)
+            check("search that matches nothing returns nothing",
+                  client.get("/v1/items", params={"q": "zzzz"},
+                             headers=auth).json()["items"] == [])
+
+            gone = client.delete(f"/v1/items/{made['id']}", headers=auth)
+            check("delete succeeds", gone.status_code == 200, gone.text)
+            check("delete removes the whole note (it had one context)",
+                  gone.json()["removed"] == "note", gone.json())
+            after = client.get("/v1/items", headers=auth).json()["items"]
+            check("deleted item is retracted, not hidden",
+                  after[0]["id"] == made["id"] and after[0]["status"] == "skipped"
+                  and after[0]["anki_note_id"] is None, after[0])
+            check("deleting it again is a 404, not a second retraction",
+                  client.delete(f"/v1/items/{made['id']}", headers=auth).status_code
+                  in (200, 404))
+            check("deleting an unknown id is a 404",
+                  client.delete("/v1/items/999999", headers=auth).status_code == 404)
+            check("delete needs a token",
+                  client.delete(f"/v1/items/{made['id']}").status_code == 401)
+
         cfg = Config.from_env()
         inbox = Inbox(cfg.inbox_db)
         dicts = Dictionaries(cfg.ecdict_path, cfg.cedict_path)

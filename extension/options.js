@@ -74,5 +74,7 @@ async function flush() {
 $('save').addEventListener('click', save);
 $('test').addEventListener('click', test);
 $('flush').addEventListener('click', flush);
+$('review').addEventListener('click', () =>
+  chrome.tabs.create({ url: chrome.runtime.getURL('review.html') }));
 load();
 refreshQueue();

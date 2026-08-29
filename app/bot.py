@@ -8,13 +8,13 @@ Quizzing here does NOT touch Anki's scheduler (D6): the bot records its own
 ratings in bot_reviews, and real review progress stays with Anki clients.
 """
 
-import html
 import logging
 import secrets
 import time
 
 from .capture import annotate, capture, resolve_lang
 from .lemma import lemmatize
+from .retract import retract
 from .translate import candidates
 
 log = logging.getLogger("vocab.bot")
@@ -467,7 +467,7 @@ class Bot:
             return
         try:
             removed = self.writer.ask(
-                lambda col: _retract(col, item), timeout=30
+                lambda col: retract(col, item), timeout=30
             )
             self.writer.mark_dirty()
         except Exception as exc:
@@ -480,31 +480,6 @@ class Bot:
             f"↩️ 已撤销 {item['lemma']}"
             + ("（整张卡已删除）" if removed == "note" else "（该条语境已移除）"),
         )
-
-
-def _retract(col, item):
-    """Undo one capture: drop its context, and the note too if that was all."""
-    from . import render
-
-    note_id = item["anki_note_id"]
-    if not note_id:
-        return "nothing"
-    try:
-        note = col.get_note(note_id)
-    except Exception:
-        return "nothing"
-
-    target = render.context_html(item["sentence"], item["raw_word"], item["word_offset"])
-    kept = [p for p in (note["Contexts"] or "").split(render.SEP) if p.strip() and p != target]
-    if not kept:
-        col.remove_notes([note_id])
-        return "note"
-    note["Contexts"] = render.SEP.join(kept)
-    note["ContextsMasked"] = kept[-1].replace(
-        f"<b>{html.escape(item['raw_word'])}</b>", "<b>____</b>"
-    )
-    col.update_note(note)
-    return "context"
 
 
 def _int(raw: str, default: int) -> int:

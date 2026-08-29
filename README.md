@@ -38,6 +38,7 @@ Chrome 插件 ──HTTPS──▶ app (FastAPI)
 | 插件查词卡片：释义预览、可编辑句子、已认识 | `extension/content.js` |
 | 离线队列：指数退避、幂等重试、badge 计数 | `extension/background.js` |
 | 词频标记（COCA 排名 + `MIN_FREQ_RANK`） | `app/main.py` |
+| 复习页：查看采集记录、删除误收的词 | `extension/review.html`, `app/retract.py` |
 
 **P2 — Telegram bot 与发音**
 
@@ -166,6 +167,11 @@ uv run python scripts/fetch_dicts.py --dest "$DATA_DIR/dict"
 
 `chrome://extensions` → 打开开发者模式 → 「加载已解压的扩展程序」→ 选 `extension/` 目录。
 在扩展的「选项」里填服务器地址（`https://api.example.com`）和 token，点「测试连接」。
+
+点工具栏图标打开**复习页**：列出所有采集记录，逐条删除误收的词（双击取词难免
+会选中 `curl`、`了` 这类）。删除同时移除 Anki 卡片上的那条语境和服务端的采集
+记录 —— 只删一边的话，卡片会留下，或者 `reproject.py` 把它replay回来。
+一个词有多条语境时，删掉最后一条才会删除整张卡。
 
 ### 7. Telegram bot（可选，P2）
 

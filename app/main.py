@@ -21,6 +21,7 @@ from .db import Inbox
 from .dictionary import Dictionaries
 from .lemma import lemmatize
 from .models import ItemAccepted, ItemIn, KnownIn, LookupOut, TranslateIn, TranslateOut
+from .retract import retract
 from .telegram import Telegram
 from .translate import Translator, candidates
 from .tts import Tts
@@ -297,6 +298,40 @@ def stats(request: Request, client: str = Depends(require_token)):
         "translation": request.app.state.translator.enabled,
         "tts_queue": request.app.state.tts.queue_depth,
     }
+
+
+@app.get("/v1/items")
+def list_items(
+    request: Request,
+    limit: int = Query(default=50, ge=1, le=500),
+    q: str = Query(default="", max_length=64),
+    client: str = Depends(require_token),
+):
+    """Recent captures, newest first — what the extension's review page shows."""
+    return {"items": request.app.state.inbox.recent(limit, q.strip())}
+
+
+@app.delete("/v1/items/{item_id}")
+def delete_item(item_id: int, request: Request, client: str = Depends(require_token)):
+    """Undo one capture: its context leaves the note, and the row leaves the inbox.
+
+    Both halves matter. Dropping only the note would let reproject.py replay the
+    capture back in (D1); dropping only the row would leave the card behind.
+    """
+    inbox: Inbox = request.app.state.inbox
+    writer: AnkiWriter = request.app.state.writer
+    item = inbox.get(item_id)
+    if item is None:
+        raise HTTPException(status_code=404, detail="no such item")
+    try:
+        removed = writer.ask(lambda col: retract(col, item), timeout=30)
+    except Exception as exc:
+        log.exception("delete of item %s failed", item_id)
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+    writer.mark_dirty()
+    inbox.mark_retracted(item_id)
+    log.info("retracted item %s (%s) -> %s", item_id, item["lemma"], removed)
+    return {"id": item_id, "lemma": item["lemma"], "removed": removed}
 
 
 @app.post("/v1/sync")

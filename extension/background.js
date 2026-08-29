@@ -193,3 +193,9 @@ chrome.runtime.onInstalled.addListener(() => {
   chrome.alarms.create(FLUSH_ALARM, { periodInMinutes: 5 });
   flush();
 });
+
+// The toolbar button had no action. Opening the review page is the one thing
+// worth a single click: it is where a mis-captured word gets deleted.
+chrome.action.onClicked.addListener(() => {
+  chrome.tabs.create({ url: chrome.runtime.getURL('review.html') });
+});

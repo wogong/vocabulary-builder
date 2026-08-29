@@ -408,10 +408,18 @@ Bot 主要使用。
 
 | 方法 | 路径 | 说明 |
 |---|---|---|
-| `GET` | `/v1/items` | 列表，支持 `status` / `since` / `limit` |
-| `GET` | `/v1/items/{id}` | 详情 |
-| `PATCH` | `/v1/items/{id}` | 修改 sentence / definition，触发重新投影 |
+| `GET` | `/v1/items` | 列表，支持 `q` / `limit`；插件复习页用 |
+| `GET` | `/v1/items/{id}` | 详情（未实现，列表已够用） |
+| `PATCH` | `/v1/items/{id}` | 修改 sentence / definition，触发重新投影（未实现） |
 | `DELETE` | `/v1/items/{id}` | 软删除，同时从 Anki 移除该语境 |
+
+`DELETE` 必须两边都动：只删卡片，`reproject.py` 会把它replay回来（D1）；
+只删 inbox 行，卡片会留在牌组里。删除后该行状态转 `skipped`、`anki_note_id`
+清空，复习页仍然列出它（标记为「已删除」），这样误删是看得见的。
+
+复习界面放在**插件页**而不是服务端：服务端经 cloudflared 暴露在公网，多一个
+管理页就多一份需要自己做登录的攻击面；插件页只有本人的浏览器配置能打开，
+并且直接复用 `chrome.storage.local` 里已有的 token。
 | `POST` | `/v1/known` | 标记为已知（不再提示） |
 | `POST` | `/v1/sync` | 手动触发 Anki 同步 |
 | `GET` | `/v1/stats` | 今日采集数、待处理数、牌组总数、上次同步时间 |
@@ -869,6 +877,16 @@ L3 是最后防线：即使 collection 彻底损坏、sync 冲突炸了、sync s
 3. **collection 的跨线程读取。** 待复习数、`/undo`、TTS 挂载都需要在 writer 线程之外
    访问 collection。新增 `writer.ask(fn)`：把闭包投递到 writer 线程执行并回传结果，
    D2 的单写入者约束不被破坏。
+
+### P2.1 — 复习与删除界面
+
+- [x] `GET /v1/items` / `DELETE /v1/items/{id}`
+- [x] 插件复习页（`extension/review.html`），列出采集记录并逐条删除
+- [x] `_retract` 从 `app/bot.py` 提到 `app/retract.py`，`/undo` 与 HTTP 删除共用
+
+误收是双击取词的常态（选中了 `curl`、`了` 这类）。`/undo` 只能撤销最近一条，
+不够用。删除的原语是**单条语境**而不是整个词：一个词的最后一条语境被删掉时，
+整张卡才移除。
 
 ### P3 — 可选增强
 

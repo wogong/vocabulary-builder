@@ -45,6 +45,10 @@ global.chrome = {
   action: {
     async setBadgeText({ text }) { badge = text; },
     async setBadgeBackgroundColor() {},
+    onClicked: { addListener(fn) { onActionClick = fn; } },
+  },
+  tabs: {
+    create({ url }) { opened.push(url); },
   },
   alarms: {
     create(name, opts) { alarms.push({ name, opts }); },
@@ -54,8 +58,12 @@ global.chrome = {
     onMessage: { addListener(fn) { onMessage = fn; } },
     onStartup: { addListener() {} },
     onInstalled: { addListener() {} },
+    getURL(path) { return `chrome-extension://test/${path}`; },
   },
 };
+
+let onActionClick = null;
+const opened = [];
 
 let responder = null;
 global.fetch = async (url, init) => responder(String(url), init);
@@ -183,6 +191,10 @@ const payload = (word) => ({ idem_key: `k-${word}`, word, sentence: `a ${word} h
   });
   const known = await sendMessage({ type: 'vocab:known', word: 'alpha', lang: 'en' });
   check('known hits /v1/known', () => assert.ok(known.data.url.includes('/v1/known')));
+
+  onActionClick();
+  check('the toolbar button opens the review page', () =>
+    assert.deepStrictEqual(opened, ['chrome-extension://test/review.html']));
 
   console.log();
   if (failures) {
