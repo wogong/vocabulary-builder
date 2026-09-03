@@ -174,6 +174,8 @@ uv run python scripts/fetch_dicts.py --dest "$DATA_DIR/dict"
 `chrome://extensions` → 打开开发者模式 → 「加载已解压的扩展程序」→ 选上面的目录。
 在扩展的「选项」里填服务器地址（`https://api.example.com`）和 token，点「测试连接」。
 
+插件只与你自己填的这台服务器通信，不经过任何第三方，见 [PRIVACY.md](PRIVACY.md)。
+
 点工具栏图标打开**复习页**：列出所有采集记录，逐条删除误收的词（双击取词难免
 会选中 `curl`、`了` 这类）。删除同时移除 Anki 卡片上的那条语境和服务端的采集
 记录 —— 只删一边的话，卡片会留下，或者 `reproject.py` 把它replay回来。
@@ -251,6 +253,18 @@ uv run uvicorn app.main:app --reload --workers 1 --port 8000   # 或设 UVICORN_
 `--workers 1` 不是可选项：一个进程只能有一个 collection 写入者（D2）。
 
 升级依赖：改 `pyproject.toml` 里的 pin → `uv lock` → **先跑 `smoke_anki.py`** → 再 `docker compose build`。
+
+### 发布插件新版本
+
+```bash
+# 1. 递增 extension/manifest.json 里的 version
+python scripts/pack_extension.py                # 打出 dist/vocabulary-builder-<版本>.zip
+cp dist/vocabulary-builder-<版本>.zip dist/vocabulary-builder-extension.zip
+gh release create v<版本> dist/vocabulary-builder-extension.zip
+```
+
+release 资产固定叫 `vocabulary-builder-extension.zip`，这样 README 里的
+`releases/latest/download/` 链接永远指向最新版，不用每次改。
 
 ## 排障
 
