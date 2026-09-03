@@ -165,7 +165,13 @@ uv run python scripts/fetch_dicts.py --dest "$DATA_DIR/dict"
 
 ### 6. 装插件
 
-`chrome://extensions` → 打开开发者模式 → 「加载已解压的扩展程序」→ 选 `extension/` 目录。
+两种方式拿到插件，任选其一：
+
+- **下载打包好的 zip**：[vocabulary-builder-extension.zip](https://github.com/wogong/vocabulary-builder/releases/latest/download/vocabulary-builder-extension.zip)
+  （固定链接，始终指向最新 release），解压到一个不会被删的目录
+- **克隆本仓库**，直接用 `extension/` 目录
+
+`chrome://extensions` → 打开开发者模式 → 「加载已解压的扩展程序」→ 选上面的目录。
 在扩展的「选项」里填服务器地址（`https://api.example.com`）和 token，点「测试连接」。
 
 点工具栏图标打开**复习页**：列出所有采集记录，逐条删除误收的词（双击取词难免
