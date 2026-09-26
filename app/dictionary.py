@@ -13,6 +13,9 @@ import sqlite3
 import threading
 from dataclasses import dataclass, field
 from pathlib import Path
+from urllib.parse import quote
+
+import httpx
 
 log = logging.getLogger("vocab.dict")
 
@@ -111,12 +114,54 @@ class Cedict:
         return self.entries.get(word)
 
 
+class RemoteDictionary:
+    """Optional JSON dictionary fallback, used only after local dictionaries miss."""
+
+    def __init__(self, base_url: str, timeout: float = 3.0, client=None):
+        self.base_url = base_url.rstrip("/")
+        self.client = client or httpx.Client(timeout=timeout)
+
+    def lookup(self, word: str) -> Entry | None:
+        try:
+            response = self.client.get(f"{self.base_url}/{quote(word.strip())}")
+            if response.status_code == 404:
+                return None
+            response.raise_for_status()
+            payload = response.json()
+        except (httpx.HTTPError, ValueError) as exc:
+            log.debug("remote dictionary lookup failed for %r: %s", word, exc)
+            return None
+        if not isinstance(payload, list):
+            return None
+        definitions = []
+        phonetic = None
+        for entry in payload:
+            if not isinstance(entry, dict):
+                continue
+            phonetic = phonetic or entry.get("phonetic")
+            for meaning in entry.get("meanings", []):
+                if not isinstance(meaning, dict):
+                    continue
+                pos = meaning.get("partOfSpeech")
+                for item in meaning.get("definitions", []):
+                    if not isinstance(item, dict) or not item.get("definition"):
+                        continue
+                    text = item["definition"].strip()
+                    definitions.append(f"{pos}. {text}" if pos else text)
+        if not definitions:
+            return None
+        return Entry(word=word, phonetic=_clean_phonetic(phonetic),
+                     definitions=definitions, source="remote")
+
+
 class Dictionaries:
     """Whatever dictionaries are actually present. Missing ones are not fatal."""
 
-    def __init__(self, ecdict_path: str = "", cedict_path: str = ""):
+    def __init__(self, ecdict_path: str = "", cedict_path: str = "",
+                 remote_url: str = ""):
         self.ecdict = self._open(Ecdict, ecdict_path, "ECDICT")
         self.cedict = self._open(Cedict, cedict_path, "CC-CEDICT")
+        self.remote = RemoteDictionary(remote_url) if remote_url else None
 
     @staticmethod
     def _open(cls, path: str, label: str):
@@ -144,12 +189,15 @@ class Dictionaries:
         Distinct from "the word was found": a client needs to tell a missing
         dictionary apart from a word the dictionary simply does not list.
         """
-        return (self.cedict if lang == "zh" else self.ecdict) is not None
+        return (self.cedict if lang == "zh" else self.ecdict) is not None or (
+            lang != "zh" and self.remote is not None
+        )
 
     def lookup(self, word: str, lang: str = "en") -> Entry | None:
         if lang == "zh" or is_cjk(word):
             return self.cedict.lookup(word) if self.cedict else None
-        return self.ecdict.lookup(word) if self.ecdict else None
+        entry = self.ecdict.lookup(word) if self.ecdict else None
+        return entry or (self.remote.lookup(word) if self.remote else None)
 
 
 def _clean_phonetic(raw: str | None) -> str | None:

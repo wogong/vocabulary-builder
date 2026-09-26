@@ -37,7 +37,7 @@ log = logging.getLogger("vocab.api")
 async def lifespan(app: FastAPI):
     cfg = Config.from_env()
     inbox = Inbox(cfg.inbox_db)
-    dictionaries = Dictionaries(cfg.ecdict_path, cfg.cedict_path)
+    dictionaries = Dictionaries(cfg.ecdict_path, cfg.cedict_path, cfg.remote_dict_url)
     writer = AnkiWriter(cfg, inbox)
     writer.start()
     writer.wait_ready()  # raises -> uvicorn exits, which is what we want (D3)

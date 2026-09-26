@@ -58,6 +58,15 @@ Chrome 插件 ──HTTPS──▶ app (FastAPI)
 
 ## 部署
 
+生产环境使用 GitHub Actions 构建并发布 GHCR 镜像：推送 `main` 会更新
+`ghcr.io/wogong/vocabulary-builder:main`，推送 `vX.Y.Z` tag 会同时发布版本 tag。
+Arcane 的 GitOps compose 位于 infra 仓库的
+`arcane/mt-gpu2/vocabulary-builder/docker-compose.yml`，复制同目录的
+`.env.example` 为 `.env`，填入现有数据目录和密钥后由 Arcane 同步运行。
+
+迁移时保留原来的 `/home/wogong/docker/vocab` 数据目录，不要删除 collection、inbox、
+词典或 sync 数据。迁移完成后，在 Arcane 中同步并启动该项目，再检查 `/healthz`。
+
 ### 1. 起服务
 
 ```bash
@@ -162,6 +171,17 @@ uv run python scripts/fetch_dicts.py --dest "$DATA_DIR/dict"
   路径为空时词典静默禁用。对照 `.env.example` 补齐，启动日志里也会告警。
 
 装好后 `GET /v1/stats` 的 `dictionaries` 应为 `{"ecdict": true, "cedict": true}`。
+
+如果 ECDICT 查不到某些术语（例如 `polymorphism`），可以配置一个兼容
+Dictionary API 格式的远程 JSON 词典作为兜底：
+
+```dotenv
+REMOTE_DICT_URL=https://api.dictionaryapi.dev/api/v2/entries/en
+```
+
+只有本地词典未命中时才会请求远程源；请求失败不会影响收词。`dict.bing.com`
+目前是网页入口，不提供稳定的公开词典 JSON API，因此没有直接抓取它的 HTML；
+抓取页面容易因改版失效，也不适合作为服务端依赖。
 
 ### 6. 装插件
 

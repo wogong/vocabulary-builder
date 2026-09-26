@@ -109,6 +109,24 @@ def main():
         check("traditional form too", dicts.lookup("無處不在") is not None)
         check("unknown word is None", dicts.lookup("zzzznotaword") is None)
 
+        import httpx
+        from app.dictionary import RemoteDictionary
+        remote = RemoteDictionary(
+            "https://dict.test",
+            client=httpx.Client(transport=httpx.MockTransport(lambda request: httpx.Response(
+                200, json=[{"phonetic": "ˌpɒlɪ", "meanings": [{
+                    "partOfSpeech": "noun",
+                    "definitions": [{"definition": "the use of multiple forms"}],
+                }]}],
+            )))
+        )
+        remote_entry = remote.lookup("polymorphism")
+        check("remote fallback parses definitions", remote_entry.definitions == [
+            "noun. the use of multiple forms"
+        ], remote_entry)
+        check("remote fallback parses phonetic", remote_entry.phonetic == "/ˌpɒlɪ/",
+              remote_entry.phonetic)
+
         missing = Dictionaries(str(tmp / "nope.db"), "")
         check("missing dictionary is not fatal", missing.lookup("ubiquitous") is None)
         check("availability reported", missing.available == {"ecdict": False, "cedict": False})
