@@ -127,6 +127,61 @@ def main():
         check("remote fallback parses phonetic", remote_entry.phonetic == "/ˌpɒlɪ/",
               remote_entry.phonetic)
 
+        print("UAPI Chinese fallback")
+        from app.capture import annotate
+        from app.dictionary import UapiDictionary
+
+        requests = []
+        uapi_payload = {"found": True, "entry": {
+            "word": "gunk",
+            "phonetics": {"us": {"text": "ɡʌŋk"}, "uk": {"text": "ɡʌŋk"}},
+            "definitions": [{"meaning": "n. 泥状物质；黏性物质"}],
+        }}
+
+        def uapi_response(request):
+            requests.append(request)
+            return httpx.Response(200, json=uapi_payload)
+
+        fallback = Dictionaries(str(ecdict_path), str(cedict_path),
+                                "https://uapi.test/lookup", "uapi")
+        check("UAPI selected by provider", isinstance(fallback.remote, UapiDictionary))
+        fallback.remote.client = httpx.Client(transport=httpx.MockTransport(uapi_response))
+        check("local English still preferred", fallback.lookup("ubiquitous").source == "ecdict")
+        check("Chinese still uses CEDICT", fallback.lookup("词汇", "zh").source == "cedict")
+        check("Chinese misses stay local", fallback.lookup("不存在的词", "zh") is None)
+        check("local queries make no remote requests", not requests)
+        lemma, gunk = annotate(fallback, "Gunk", "en")
+        check("gunk keeps lemma and Chinese gloss", lemma == "gunk" and
+              gunk.definitions == ["n. 泥状物质；黏性物质"] and gunk.source == "uapi", gunk)
+        check("UAPI phonetic parsed", gunk.phonetic == "/ɡʌŋk/", gunk)
+        check("repeated annotation uses one request", len(requests) == 1, len(requests))
+        check("word sent as query parameter", requests[0].url.params["word"] == "gunk")
+
+        # An outage must not poison the result cache: each failure can retry.
+        for label, failure in [
+            ("rate limit", httpx.Response(429)),
+            ("server error", httpx.Response(500)),
+            ("invalid JSON", httpx.Response(200, text="not JSON")),
+            ("timeout", httpx.ReadTimeout("timed out")),
+        ]:
+            replies = iter([failure, httpx.Response(200, json=uapi_payload)])
+
+            def flaky_response(request):
+                reply = next(replies)
+                if isinstance(reply, Exception):
+                    raise reply
+                return reply
+
+            flaky = UapiDictionary("https://uapi.test/lookup", client=httpx.Client(
+                transport=httpx.MockTransport(flaky_response)))
+            check(f"UAPI {label} is nonfatal", flaky.lookup("gunk") is None)
+            check(f"UAPI retries after {label}", flaky.lookup("gunk") is not None)
+
+        for payload in [{"found": False}, {"found": True, "entry": {}}, []]:
+            empty = UapiDictionary("https://uapi.test/lookup", client=httpx.Client(
+                transport=httpx.MockTransport(lambda request: httpx.Response(200, json=payload))))
+            check("UAPI missing entry gives no annotation", empty.lookup("unknown") is None)
+
         missing = Dictionaries(str(tmp / "nope.db"), "")
         check("missing dictionary is not fatal", missing.lookup("ubiquitous") is None)
         check("availability reported", missing.available == {"ecdict": False, "cedict": False})
@@ -152,6 +207,22 @@ def main():
         from app.main import app
 
         with TestClient(app) as client:
+            original_dicts = app.state.dictionaries
+            app.state.dictionaries = fallback
+            body = client.get("/v1/lookup", params={"word": "gunk"}, headers=AUTH).json()
+            check("lookup returns UAPI Chinese gloss", body["dictionary"] == "uapi" and
+                  body["definitions"] == ["n. 泥状物质；黏性物质"], body)
+            body = client.get("/v1/lookup", params={"word": "gunk", "lang": "zh"},
+                              headers=AUTH).json()
+            check("Chinese preference still finds English fallback", body["dictionary"] == "uapi"
+                  and body["definitions"] == ["n. 泥状物质；黏性物质"], body)
+            posted_gunk = client.post("/v1/items", headers=AUTH, json={
+                "word": "gunk", "lang": "zh", "sentence": "Wash off the gunk.",
+                "url": "https://example.com",
+            })
+            check("English capture with Chinese preference accepted", posted_gunk.status_code == 202,
+                  posted_gunk.text)
+            app.state.dictionaries = original_dicts
             check("auth required", client.get("/v1/lookup?word=x").status_code == 401)
 
             body = client.get("/v1/lookup", params={"word": "ubiquitous"}, headers=AUTH).json()
@@ -161,6 +232,11 @@ def main():
             check("not in deck yet", body["in_deck"] is False, body)
             check("dictionary named", body["dictionary"] == "ecdict", body)
             check("dictionary reported ready", body["dictionary_ready"] is True, body)
+            preferred_zh = client.get("/v1/lookup", params={"word": "ubiquitous", "lang": "zh"},
+                                      headers=AUTH).json()
+            check("Chinese preference still finds English locally",
+                  preferred_zh["dictionary"] == "ecdict" and
+                  preferred_zh["definitions"] == body["definitions"], preferred_zh)
             check("no LLM gloss in P1", body["context_definition"] is None, body)
 
             common = client.get("/v1/lookup", params={"word": "the"}, headers=AUTH).json()
@@ -231,6 +307,12 @@ def main():
               len(col.find_notes('note:VocabContext "Word:application"')) == 1)
         check("no note under the surface form",
               len(col.find_notes('note:VocabContext "Word:applications"')) == 0)
+        gunk_note = col.get_note(col.find_notes('note:VocabContext "Word:gunk"')[0])
+        check("UAPI Chinese gloss reaches Anki", "泥状物质" in gunk_note["Definition"],
+              gunk_note["Definition"])
+        with sqlite3.connect(tmp / "app" / "inbox.db") as conn:
+            gunk_lang = conn.execute("SELECT lang FROM items WHERE lemma = 'gunk'").fetchone()[0]
+        check("English capture uses English language key", gunk_lang == "en", gunk_lang)
         col.close()
 
         print("hand edits survive re-capture")

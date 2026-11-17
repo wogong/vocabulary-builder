@@ -86,6 +86,7 @@ class Config:
     tts_enabled: bool
     tts_voice: str
     remote_dict_url: str = ""
+    remote_dict_provider: str = "dictionaryapi"
 
     def __post_init__(self):
         # An empty endpoint means AnkiWeb to the anki library. D7 chose a
@@ -119,6 +120,7 @@ class Config:
             ecdict_path=os.environ.get("ECDICT_PATH", ""),
             cedict_path=os.environ.get("CEDICT_PATH", ""),
             remote_dict_url=os.environ.get("REMOTE_DICT_URL", "").rstrip("/"),
+            remote_dict_provider=os.environ.get("REMOTE_DICT_PROVIDER") or "dictionaryapi",
             min_freq_rank=_int("MIN_FREQ_RANK", 3000),
             tg_bot_token=os.environ.get("TG_BOT_TOKEN", ""),
             tg_allowed_chat_ids=_ids(os.environ.get("TG_ALLOWED_CHAT_IDS", "")),

@@ -10,8 +10,10 @@ from .lemma import lemmatize
 
 
 def resolve_lang(word: str, requested: str = "en") -> str:
-    """A CJK word is Chinese whatever the caller claimed (decision B1)."""
-    return "zh" if is_cjk(word) else (requested or "en")
+    """Route by script so a Chinese preference cannot hide English entries."""
+    if is_cjk(word):
+        return "zh"
+    return "en" if requested == "zh" else (requested or "en")
 
 
 def annotate(dictionaries, word: str, lang: str):

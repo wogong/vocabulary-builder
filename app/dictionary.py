@@ -12,6 +12,7 @@ import re
 import sqlite3
 import threading
 from dataclasses import dataclass, field
+from functools import lru_cache
 from pathlib import Path
 from urllib.parse import quote
 
@@ -154,14 +155,60 @@ class RemoteDictionary:
                      definitions=definitions, source="remote")
 
 
+class UapiDictionary:
+    """Chinese glosses from UAPI; cache results, but allow failed requests to retry."""
+
+    def __init__(self, base_url: str, timeout: float = 3.0, client=None):
+        self.base_url = base_url
+        self.client = client or httpx.Client(timeout=timeout)
+
+    def lookup(self, word: str) -> Entry | None:
+        try:
+            return self._lookup(word.strip().casefold())
+        except (httpx.HTTPError, ValueError) as exc:
+            log.debug("UAPI dictionary lookup failed for %r: %s", word, exc)
+            return None
+
+    @lru_cache(maxsize=1024)
+    def _lookup(self, word: str) -> Entry | None:
+        response = self.client.get(self.base_url, params={"word": word})
+        response.raise_for_status()
+        payload = response.json()
+        if not isinstance(payload, dict) or payload.get("found") is not True:
+            return None
+        entry = payload.get("entry")
+        if not isinstance(entry, dict):
+            return None
+        definitions = [
+            item["meaning"].strip()
+            for item in (entry.get("definitions") or [])
+            if isinstance(item, dict) and isinstance(item.get("meaning"), str)
+            and item["meaning"].strip()
+        ]
+        if not definitions:
+            return None
+        phonetics = entry.get("phonetics") or {}
+        phonetic = None
+        for accent in ("us", "uk"):
+            pronunciation = phonetics.get(accent) or {}
+            if isinstance(pronunciation, dict) and pronunciation.get("text"):
+                phonetic = pronunciation["text"]
+                break
+        return Entry(word=word, phonetic=_clean_phonetic(phonetic),
+                     definitions=definitions, source="uapi")
+
+
 class Dictionaries:
     """Whatever dictionaries are actually present. Missing ones are not fatal."""
 
     def __init__(self, ecdict_path: str = "", cedict_path: str = "",
-                 remote_url: str = ""):
+                 remote_url: str = "", remote_provider: str = "dictionaryapi"):
         self.ecdict = self._open(Ecdict, ecdict_path, "ECDICT")
         self.cedict = self._open(Cedict, cedict_path, "CC-CEDICT")
-        self.remote = RemoteDictionary(remote_url) if remote_url else None
+        if remote_provider not in ("dictionaryapi", "uapi"):
+            raise ValueError(f"Unknown remote dictionary provider: {remote_provider}")
+        remote_cls = UapiDictionary if remote_provider == "uapi" else RemoteDictionary
+        self.remote = remote_cls(remote_url) if remote_url else None
 
     @staticmethod
     def _open(cls, path: str, label: str):

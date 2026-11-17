@@ -183,6 +183,22 @@ REMOTE_DICT_URL=https://api.dictionaryapi.dev/api/v2/entries/en
 目前是网页入口，不提供稳定的公开词典 JSON API，因此没有直接抓取它的 HTML；
 抓取页面容易因改版失效，也不适合作为服务端依赖。
 
+如需远程补充**中文释义**，使用 UAPI 单词查询：
+
+```dotenv
+REMOTE_DICT_PROVIDER=uapi
+REMOTE_DICT_URL=https://uapis.cn/api/v1/dictionary/lookup
+```
+
+UAPI 无需密钥，提供中文释义和英美音标；有免费额度限制，具体以
+[服务说明](https://uapis.cn/docs/api-reference/faq)为准。ECDICT 仍然优先，
+仅未命中时请求 UAPI。进程内缓存最近 1024 个查询结果（含未找到的词），
+网络、HTTP 或 JSON 解析失败不会缓存，后续可重试。未设置
+`REMOTE_DICT_PROVIDER` 时保持原来的 Dictionary API 格式。修改配置后需重新创建应用容器。
+
+查词和收词会按文字判断中英文：汉字使用 CC-CEDICT，英文词即使插件选择了
+“中文”也仍使用 ECDICT 及英文远程兜底；英文词典返回的释义本身可以是中文。
+
 ### 6. 装插件
 
 两种方式拿到插件，任选其一：
